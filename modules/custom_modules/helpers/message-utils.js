@@ -1,4 +1,4 @@
-const logger = require('../../Core/logger');
+const logger = require('../../../Core/logger');
 
 
 class MessageUtils {

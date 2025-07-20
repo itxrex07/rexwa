@@ -172,9 +172,12 @@ if (!this.checkPermissions(msg, command)) {
         } catch (error) {
             logger.error(`❌ Command failed: ${command}`, error);
 
-            await this.bot.sendMessage(sender, {
-                text: `❌ Command failed: ${error.message}`
-            });
+            if (!error._handledBySmartError) {
+    await this.bot.sendMessage(sender, {
+        text: `❌ Command failed: ${error.message}`
+    });
+}
+
 
             if (this.bot.telegramBridge) {
                 await this.bot.telegramBridge.logToTelegram('❌ Command Error',

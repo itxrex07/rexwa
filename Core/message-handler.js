@@ -37,9 +37,12 @@ class MessageHandler {
         for (const msg of messages) {
             try {
                 await this.processMessage(msg);
-            } catch (error) {
-                logger.error('Error processing message:', error);
-            }
+} catch (error) {
+    console.error('[UNCAUGHT ERROR]', error); // Full dump
+    logger.error('Error processing message:', error?.stack || error?.message || JSON.stringify(error));
+}
+
+
         }
     }
 

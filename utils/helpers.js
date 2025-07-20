@@ -1,4 +1,3 @@
-
 const config = require('../config');
 
 class Helpers {
@@ -98,7 +97,9 @@ class Helpers {
                 await bot.sendMessage(sender, { text: finalErrorText });
             }
 
+            error._handledBySmartError = true;
             throw error;
+
         }
     }
 

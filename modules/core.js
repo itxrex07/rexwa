@@ -4,6 +4,7 @@ const path = require('path');
 const { exec } = require('child_process');
 const helpers = require('../utils/helpers');
 
+
 class CoreModule {
     constructor(bot) {
         this.bot = bot;
@@ -124,7 +125,8 @@ class CoreModule {
         const start = Date.now();
         const latency = Date.now() - start;
         this.incrementCommandCount('ping');
-        return ` *Pong!* • ${latency}ms`;
+      return ` *Pong!* • ${latency}ms`;
+
     }
 
     async status(msg, params, context) {
@@ -142,14 +144,20 @@ class CoreModule {
         return text;
     }
 
-    async restart(msg, params, context) {
-        this.incrementCommandCount('restart');
-        if (this.bot.telegramBridge) {
-            await this.bot.telegramBridge.logToTelegram('🔄 Bot Restart', 'Restart requested by owner.');
-        }
-        setTimeout(() => process.exit(0), 1000);
-        return '🔁 Restarting process...';
+async restart(msg, params, context) {
+    this.incrementCommandCount('restart');
+
+    // Optional: log to Telegram before exit
+    if (this.bot.telegramBridge) {
+        await this.bot.telegramBridge.logToTelegram('🔄 Bot Restart', 'Restart requested by owner.');
     }
+
+    // Force exit after short delay
+    setTimeout(() => process.exit(0), 1000);
+
+    return '🔁 Restarting process...';
+}
+
 
     async toggleMode(msg, params, context) {
         const mode = params[0]?.toLowerCase();

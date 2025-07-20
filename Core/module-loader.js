@@ -15,7 +15,7 @@ class ModuleLoader {
 
     setupModuleCommands() {
         // Load Module Command
-const loadModuleCommand = {
+        const loadModuleCommand = {
     name: 'lm',
     description: 'Load a module from file (replaces if it already exists)',
     usage: '.lm (reply to a .js file)',
@@ -199,37 +199,40 @@ const loadModuleCommand = {
         this.bot.messageHandler.registerCommandHandler('modules', listModulesCommand);
     }
 
-    async loadModules() {
-        const systemPath = path.join(__dirname, '../modules');
-        const customPath = path.join(__dirname, '../custom_modules');
+async loadModules() {
+    const systemPath = path.join(__dirname, '../modules');
+    const customPath = path.join(__dirname, '../modules/custom_modules');
 
-        await fs.ensureDir(systemPath);
-        await fs.ensureDir(customPath);
+    await fs.ensureDir(systemPath);
+    await fs.ensureDir(customPath);
 
-        const [systemFiles, customFiles] = await Promise.all([
-            fs.readdir(systemPath),
-            fs.readdir(customPath)
-        ]);
+    const [systemFiles, customFiles] = await Promise.all([
+        fs.readdir(systemPath),
+        fs.readdir(customPath)
+    ]);
 
-        this.systemModulesCount = 0;
-        this.customModulesCount = 0;
+    this.systemModulesCount = 0;
+    this.customModulesCount = 0;
 
-        for (const file of systemFiles) {
-            if (file.endsWith('.js')) {
-                await this.loadModule(path.join(systemPath, file), true);
-            }
+    for (const file of systemFiles) {
+        if (file.endsWith('.js')) {
+            await this.loadModule(path.join(systemPath, file), true);
         }
+    }
 
-        for (const file of customFiles) {
-            if (file.endsWith('.js')) {
-                await this.loadModule(path.join(customPath, file), false);
-            }
+    for (const file of customFiles) {
+        if (file.endsWith('.js')) {
+            await this.loadModule(path.join(customPath, file), false);
         }
-
+    }
 logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 Custom: ${this.customModulesCount} || 📊 Total: ${this.systemModulesCount + this.customModulesCount}`);
 
-    }
+
         // Load help system after all modules
+        this.setupHelpSystem();
+
+    }
+
     setupHelpSystem() {
         const helpCommand = {
             name: 'help',
@@ -377,7 +380,7 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
                         continue;
                     }
 
-                    const ui = cmd.ui || {};
+                                        const ui = cmd.ui || {};
 const wrappedCmd = cmd.autoWrap === false ? cmd : {
     ...cmd,
     execute: async (msg, params, context) => {
@@ -396,7 +399,6 @@ const wrappedCmd = cmd.autoWrap === false ? cmd : {
         await helpers.smartErrorRespond(context.bot, msg, options);
     }
 };
-
                     this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
                 }
             }
@@ -417,11 +419,11 @@ const wrappedCmd = cmd.autoWrap === false ? cmd : {
             } else {
                 this.customModulesCount++;
             }
+
 } catch (err) {
     logger.error(`❌ Failed to load module '${moduleId}' from ${filePath}`);
-    logger.error(`Error name: ${err.name}`);
     logger.error(`Error message: ${err.message}`);
-    logger.error(`Error stack:\n${err.stack}`);
+
 }
 
     }

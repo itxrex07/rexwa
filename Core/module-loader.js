@@ -16,68 +16,53 @@ class ModuleLoader {
     setupModuleCommands() {
         // Load Module Command
         const loadModuleCommand = {
-    name: 'lm',
-    description: 'Load a module from file (replaces if it already exists)',
-    usage: '.lm (reply to a .js file)',
-    permissions: 'owner',
-    execute: async (msg, params, context) => {
-        const docMsg = msg.message?.documentMessage;
+            name: 'lm',
+            description: 'Load a module from file',
+            usage: '.lm (reply to a .js file)',
+            permissions: 'owner',
+            execute: async (msg, params, context) => {
+                if (!msg.message?.documentMessage?.fileName?.endsWith('.js')) {
+                    return context.bot.sendMessage(context.sender, {
+                        text: '🔧 *Load Module*\n\n❌ Please reply to a JavaScript (.js) file to load it as a module.'
+                    });
+                }
 
-        if (!docMsg) {
-            return context.bot.sendMessage(context.sender, {
-                text: '🔧 *Load Module*\n\n❌ Please reply to a valid JavaScript (.js) file.'
-            });
-        }
+                try {
+                    const processingMsg = await context.bot.sendMessage(context.sender, {
+                        text: '⚡ *Loading Module*\n\n🔄 Downloading and installing module...\n⏳ Please wait...'
+                    });
 
-        const mime = docMsg.mimetype;
-        const rawFileName = docMsg.fileName || 'module';
-        const fileName = rawFileName.endsWith('.js') ? rawFileName : `${rawFileName}.js`;
+                    const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+                    const stream = await downloadContentFromMessage(msg.message.documentMessage, 'document');
+                    
+                    const chunks = [];
+                    for await (const chunk of stream) {
+                        chunks.push(chunk);
+                    }
+                    const buffer = Buffer.concat(chunks);
+                    
+                    const fileName = msg.message.documentMessage.fileName;
+                    const customModulesPath = path.join(__dirname, '../custom_modules');
+                    await fs.ensureDir(customModulesPath);
+                    
+                    const filePath = path.join(customModulesPath, fileName);
+                    await fs.writeFile(filePath, buffer);
+                    
+                    await this.loadModule(filePath, false);
+                    
+                    await context.bot.sock.sendMessage(context.sender, {
+                        text: `✅ *Module Loaded Successfully*\n\n📦 Module: \`${fileName}\`\n📁 Location: Custom Modules\n🎯 Status: Active\n⏰ ${new Date().toLocaleTimeString()}`,
+                        edit: processingMsg.key
+                    });
 
-        if (!fileName.endsWith('.js') && mime !== 'application/javascript' && mime !== 'application/ecmascript') {
-            return context.bot.sendMessage(context.sender, {
-                text: `🔧 *Load Module*\n\n❌ Invalid file type. Please reply to a valid JavaScript (.js) file.\n\n📄 Detected MIME: \`${mime || 'unknown'}\``
-            });
-        }
-
-        try {
-            const processingMsg = await context.bot.sendMessage(context.sender, {
-                text: '⚡ *Loading Module*\n\n🔄 Downloading and preparing module...\n⏳ Please wait...'
-            });
-
-            const stream = await downloadContentFromMessage(docMsg, 'document');
-            const chunks = [];
-            for await (const chunk of stream) chunks.push(chunk);
-            const buffer = Buffer.concat(chunks);
-
-            const customModulesPath = path.join(__dirname, '../custom_modules');
-            await fs.ensureDir(customModulesPath);
-            const filePath = path.join(customModulesPath, fileName);
-
-            // Save (overwrite if exists)
-            await fs.writeFile(filePath, buffer);
-
-            const moduleName = fileName.replace(/\.js$/, '');
-            const existing = this.modules?.[moduleName];
-
-            if (existing) {
-                await this.reloadModule(moduleName);
-            } else {
-                await this.loadModule(filePath, false);
+                } catch (error) {
+                    logger.error('Failed to load module:', error);
+                    await context.bot.sendMessage(context.sender, {
+                        text: `❌ *Module Load Failed*\n\n🚫 Error: ${error.message}\n🔧 Please check the module file format.`
+                    });
+                }
             }
-
-            await context.bot.sock.sendMessage(context.sender, {
-                text: `✅ *Module Loaded Successfully*\n\n📦 Module: \`${fileName}\`\n📁 Location: Custom Modules\n🔁 Status: ${existing ? 'Replaced' : 'Newly Loaded'}\n⏰ ${new Date().toLocaleTimeString()}`,
-                edit: processingMsg.key
-            });
-
-        } catch (error) {
-            logger.error('Failed to load module:', error);
-            await context.bot.sendMessage(context.sender, {
-                text: `❌ *Module Load Failed*\n\n🚫 Error: ${error.message}\n📄 Please ensure the file is a valid module script.`
-            });
-        }
-    }
-};
+        };
 
         // Unload Module Command
         const unloadModuleCommand = {

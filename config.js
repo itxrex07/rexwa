@@ -20,7 +20,7 @@ constructor() {
         // Feature toggles and configurations
         features: {
             mode: 'public', // Bot mode: 'public' or 'private'
-            autoViewStatus: true, // Automatically view WhatsApp status updates
+            autoViewStatus: false, // Automatically view WhatsApp status updates
             customModules: true, // Enable loading of custom modules
             rateLimiting: true, // Enable command rate limiting
             telegramBridge: true, // Enable Telegram bridge integration
@@ -34,12 +34,7 @@ constructor() {
                 uri: 'mongodb+srv://itxelijah07:ivp8FYGsbVfjQOkj@cluster0.wh25x.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0',
                 dbName: 'HyperWALex'
             },
-            security: {
-                maxCommandsPerMinute: 10,
-                maxDownloadsPerHour: 20,
-                allowedDomains: ['youtube.com', 'instagram.com', 'tiktok.com'],
-                blockedUsers: []
-            },
+
             telegram: {
                 enabled: true,
                 botToken: '7822179405:AAHI1zW7qkXZsqOtyu9NeRdmquwbx1aZu0o',
@@ -49,14 +44,14 @@ constructor() {
                 features: {
                     topics: true,
                     mediaSync: true,
-                    profilePicSync: true,
+                    profilePicSync: false,
                     callLogs: true,
                     statusSync: true,
                     biDirectional: true,
                     welcomeMessage: false,       // set to false to disable welcome message sent when topic created
                     sendOutgoingMessages: false,  // set to false to stop forwarding myside messages
                     presenceUpdates: true,
-                    readReceipts: true,
+                    readReceipts: false,
                     animatedStickers: true
                 }
             },

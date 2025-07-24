@@ -3,7 +3,8 @@ const fs = require('fs-extra');
 const logger = require('./logger');
 const config = require('../config');
 const helpers = require('../utils/helpers');
-
+// Temporary in-memory store; replace with DB for persistence
+const helpPreferences = new Map();
 class ModuleLoader {
     constructor(bot) {
         this.bot = bot;
@@ -11,6 +12,7 @@ class ModuleLoader {
         this.systemModulesCount = 0;
         this.customModulesCount = 0;
         this.setupModuleCommands();
+        
     }
 
     setupModuleCommands() {
@@ -218,104 +220,158 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
 
     }
 
-    setupHelpSystem() {
-        const helpCommand = {
-            name: 'help',
-            description: 'Show all available modules and commands or detailed help for a specific module',
-            usage: '.help [module_name]',
-            permissions: 'public',
-            execute: async (msg, params, context) => {
-                if (params.length > 0) {
-                    // Show detailed help for a specific module
-                    const moduleName = params[0].toLowerCase();
-                    const moduleInfo = this.getModule(moduleName);
 
-                    if (!moduleInfo) {
-                        await context.bot.sendMessage(context.sender, {
-                            text: `❌ Module \`${moduleName}\` not found.\n\nUse \`.help\` to see all available modules.`
-                        });
-                        return;
-                    }
 
-                    const metadata = moduleInfo.metadata || {};
-                    const commands = Array.isArray(moduleInfo.commands) ? moduleInfo.commands : [];
-                    let helpText = `📦 *Module: ${moduleName}*\n\n`;
-                    helpText += `📝 *Description*: ${metadata.description || 'No description available'}\n`;
-                    helpText += `🆚 *Version*: ${metadata.version || 'Unknown'}\n`;
-                    helpText += `👤 *Author*: ${metadata.author || 'Unknown'}\n`;
-                    helpText += `📂 *Category*: ${metadata.category || 'Uncategorized'}\n`;
-                    helpText += `📁 *Type*: ${this.modules.get(moduleName)?.isSystem ? 'System' : 'Custom'}\n\n`;
+setupHelpSystem() {
+    const helpPreferences = new Map();
 
-                    if (commands.length > 0) {
-                        helpText += `📋 *Commands* (${commands.length}):\n`;
-                        for (const cmd of commands) {
-                            helpText += `  • \`${cmd.name}\` - ${cmd.description}\n`;
-                            helpText += `    Usage: \`${cmd.usage}\`\n`;
-                            helpText += `    Permissions: ${cmd.permissions || 'public'}\n`;
-                        }
-                    } else {
-                        helpText += `📋 *Commands*: None\n`;
-                    }
+    const getUserPermissions = (userId) => {
+        const owner = config.get('bot.owner')?.split('@')[0]; // Get owner ID without domain
+        const isOwner = owner === userId;
+        const admins = config.get('bot.admins') || [];
+        const isAdmin = admins.includes(userId);
+        return isOwner ? ['public', 'admin', 'owner'] : isAdmin ? ['public', 'admin'] : ['public'];
+    };
 
-                    await context.bot.sendMessage(context.sender, { text: helpText });
-                    return;
-                }
+    const helpCommand = {
+        name: 'help',
+        description: 'Show available commands or help for a module',
+        usage: '.help [module_name] | .help 1|2 | .help show 1|2|3',
+        permissions: 'public',
+        execute: async (msg, params, context) => {
+        const userId = context.sender.split('@')[0]; // Normalize userId
+        const userPerms = getUserPermissions(userId);
 
-                // Show all modules and their commands
-                let helpText = `🤖 *${config.get('bot.name')} Help Menu*\n\n`;
-                helpText += `🎯 *Prefix*: \`${config.get('bot.prefix')}\`\n`;
-                helpText += `📊 *Total Modules*: ${this.modules.size}\n`;
-                helpText += `📋 *Total Commands*: ${this.bot.messageHandler.commandHandlers.size}\n\n`;
+        const helpConfig = config.get('help') || {};
+        const defaultStyle = helpConfig.defaultStyle || 1;
+        const defaultShow = helpConfig.defaultShow || 'description';
+        const pref = helpPreferences.get(userId) || { style: defaultStyle, show: defaultShow };
 
-                const systemModules = [];
-                const customModules = [];
-
-                for (const [name, moduleInfo] of this.modules) {
-                    if (moduleInfo.isSystem) {
-                        systemModules.push({ name, instance: moduleInfo.instance });
-                    } else {
-                        customModules.push({ name, instance: moduleInfo.instance });
-                    }
-                }
-
-                // System Modules
-                helpText += `📊 *System Modules* (${systemModules.length}):\n`;
-                if (systemModules.length > 0) {
-                    for (const mod of systemModules) {
-                        const commands = Array.isArray(mod.instance.commands) ? mod.instance.commands : [];
-                        helpText += `  📦 ${mod.name} (${commands.length} commands)\n`;
-                        for (const cmd of commands) {
-                            helpText += `    • \`${cmd.name}\` - ${cmd.description} (Usage: \`${cmd.usage}\`)\n`;
-                        }
-                    }
-                } else {
-                    helpText += `  • None loaded\n`;
-                }
-                helpText += `\n`;
-
-                // Custom Modules
-                helpText += `🎨 *Custom Modules* (${customModules.length}):\n`;
-                if (customModules.length > 0) {
-                    for (const mod of customModules) {
-                        const commands = Array.isArray(mod.instance.commands) ? mod.instance.commands : [];
-                        helpText += `  📦 ${mod.name} (${commands.length} commands)\n`;
-                        for (const cmd of commands) {
-                            helpText += `    • \`${cmd.name}\` - ${cmd.description} (Usage: \`${cmd.usage}\`)\n`;
-                        }
-                    }
-                } else {
-                    helpText += `  • None loaded\n`;
-                }
-
-                helpText += `\n💡 *Tip*: Use \`.help <module_name>\` for detailed module info\n`;
-                helpText += `🔧 *Module Management*: \`.lm\`, \`.ulm\`, \`.rlm\`, \`.modules\`, \`.moduleinfo\`, \`.allmodules\``;
-
-                await context.bot.sendMessage(context.sender, { text: helpText });
+            // Handle `.help 1` / `.help 2` (style switch)
+            if (params.length === 1 && ['1', '2'].includes(params[0])) {
+                pref.style = Number(params[0]);
+                helpPreferences.set(userId, pref);
+                await context.bot.sendMessage(context.sender, {
+                    text: `✅ Help style set to *${pref.style}*`
+                });
+                return;
             }
-        };
 
-        this.bot.messageHandler.registerCommandHandler('help', helpCommand);
-    }
+            // Handle `.help show 1|2|3`
+            if (params.length === 2 && params[0] === 'show') {
+                const map = { '1': 'description', '2': 'usage', '3': 'none' };
+                if (!map[params[1]]) {
+                    return await context.bot.sendMessage(context.sender, {
+                        text: `❌ Invalid show option.\nUse:\n.help show 1 (description)\n.help show 2 (usage)\n.help show 3 (none)`
+                    });
+                }
+                pref.show = map[params[1]];
+                helpPreferences.set(userId, pref);
+                return await context.bot.sendMessage(context.sender, {
+                    text: `✅ Help display mode set to *${pref.show}*`
+                });
+            }
+
+            // Handle `.help [module]`
+            if (params.length === 1) {
+                const moduleName = params[0].toLowerCase();
+                const moduleInfo = this.getModule(moduleName);
+
+                if (!moduleInfo) {
+                    return await context.bot.sendMessage(context.sender, {
+                        text: `❌ Module *${moduleName}* not found.\nUse *.help* to view available modules.`
+                    });
+                }
+
+                const commands = Array.isArray(moduleInfo.commands) ? moduleInfo.commands : [];
+
+                const visibleCommands = commands.filter(cmd => {
+                    const perms = Array.isArray(cmd.permissions) ? cmd.permissions : [cmd.permissions];
+                    return perms.some(p => userPerms.includes(p));
+                });
+
+                let out = '';
+                if (pref.style === 2) {
+                    out += `██▓▒░ *${moduleName}*\n\n`;
+                    for (const cmd of visibleCommands) {
+                        const info = pref.show === 'usage' ? cmd.usage : cmd.description;
+                        if (pref.show === 'none') {
+                            out += `  ↳ *${cmd.name}*\n`;
+                        } else {
+                            out += `  ↳ *${cmd.name}*: ${info}\n`;
+                        }
+                    }
+                } else {
+                    out += `╔══  *${moduleName}* ══\n`;
+                    for (const cmd of visibleCommands) {
+                        const info = pref.show === 'usage' ? cmd.usage : cmd.description;
+                        if (pref.show === 'none') {
+                            out += `║ *${cmd.name}*\n`;
+                        } else {
+                            out += `║ *${cmd.name}* – ${info}\n`;
+                        }
+                    }
+                    out += `╚═══════════════`;
+                }
+
+                return await context.bot.sendMessage(context.sender, { text: out });
+            }
+
+            // Render all modules
+            const systemModules = [];
+            const customModules = [];
+
+            for (const [name, moduleInfo] of this.modules) {
+                const entry = { name, instance: moduleInfo.instance };
+                moduleInfo.isSystem ? systemModules.push(entry) : customModules.push(entry);
+            }
+
+            const renderModuleBlock = (modules) => {
+                let block = '';
+                for (const mod of modules) {
+                    const commands = Array.isArray(mod.instance.commands) ? mod.instance.commands : [];
+                    const visible = commands.filter(c => {
+                        const perms = Array.isArray(c.permissions) ? c.permissions : [c.permissions];
+                        return perms.some(p => userPerms.includes(p));
+                    });
+                    if (visible.length === 0) continue;
+
+                    if (pref.style === 2) {
+                        block += `██▓▒░ *${mod.name}*\n\n`;
+                        for (const cmd of visible) {
+                            const info = pref.show === 'usage' ? cmd.usage : cmd.description;
+                            if (pref.show === 'none') {
+                                block += `  ↳ *${cmd.name}*\n`;
+                            } else {
+                                block += `  ↳ *${cmd.name}*: ${info}\n`;
+                            }
+                        }
+                        block += `\n`;
+                    } else {
+                        block += `╔══  *${mod.name}* ══\n`;
+                        for (const cmd of visible) {
+                            const info = pref.show === 'usage' ? cmd.usage : cmd.description;
+                            if (pref.show === 'none') {
+                                block += `║ *${cmd.name}*\n`;
+                            } else {
+                                block += `║ *${cmd.name}* – ${info}\n`;
+                            }
+                        }
+                        block += `╚═══════════════\n\n`;
+                    }
+                }
+                return block;
+            };
+            let helpText = `🤖 *${config.get('bot.name')} Help Menu*\n\n`;
+helpText += renderModuleBlock(systemModules);
+helpText += renderModuleBlock(customModules);
+await context.bot.sendMessage(context.sender, { text: helpText.trim() });
+
+        }
+    };
+
+    this.bot.messageHandler.registerCommandHandler('help', helpCommand);
+}
 
     getCommandModule(commandName) {
         for (const [moduleName, moduleInfo] of this.modules) {
@@ -360,30 +416,29 @@ logger.info(`Modules Loaded || 🧩 System: ${this.systemModulesCount} || 📦 C
 
             if (Array.isArray(moduleInstance.commands)) {
                 for (const cmd of moduleInstance.commands) {
-                    if (!cmd.name || !cmd.description || !cmd.usage || !cmd.execute) {
-                        logger.warn(`⚠️ Invalid command in module ${actualModuleId}: ${JSON.stringify(cmd)}`);
-                        continue;
-                    }
+    if (!cmd.name || !cmd.description || !cmd.usage || !cmd.execute) {
+        logger.warn(`⚠️ Invalid command in module ${actualModuleId}: ${JSON.stringify(cmd)}`);
+        continue;
+    }
 
-                                        const ui = cmd.ui || {};
-const wrappedCmd = cmd.autoWrap === false ? cmd : {
+                    const ui = cmd.ui || {};
+
+                    // Only wrap commands that have UI config (structured modules)
+const shouldWrap = cmd.ui && (cmd.autoWrap !== false);
+const wrappedCmd = shouldWrap ? {
     ...cmd,
     execute: async (msg, params, context) => {
-        const options = {
-            actionFn: async () => await cmd.execute(msg, params, context)
-        };
-
-        if (ui.processingText) {
-            options.processingText = ui.processingText;
-        }
-
-        if (ui.errorText) {
-            options.errorText = ui.errorText;
-        }
-
-        await helpers.smartErrorRespond(context.bot, msg, options);
+        await helpers.smartErrorRespond(context.bot, msg, {
+            processingText: ui.processingText || `⏳ Running *${cmd.name}*...`,
+            errorText: ui.errorText || `❌ *${cmd.name}* failed.`,
+            actionFn: async () => {
+                return await cmd.execute(msg, params, context);
+            }
+        });
     }
-};
+} : cmd; // Use original command without wrapping
+
+
                     this.bot.messageHandler.registerCommandHandler(cmd.name, wrappedCmd);
                 }
             }
@@ -420,7 +475,7 @@ const wrappedCmd = cmd.autoWrap === false ? cmd : {
     listModules() {
         return [...this.modules.keys()];
     }
-
+    
     async unloadModule(moduleId) {
         const moduleInfo = this.modules.get(moduleId);
         if (!moduleInfo) {

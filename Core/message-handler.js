@@ -154,33 +154,52 @@ if (!this.checkPermissions(msg, command)) {
     const respondToUnknown = config.get('features.respondToUnknownCommands', false);
 
     if (handler) {
-        try {
-            await handler.execute(msg, params, {
-                bot: this.bot,
-                sender,
-                participant,
-                isGroup: sender.endsWith('@g.us')
-            });
+    // Always add ⏳ reaction for ALL commands
+    await this.bot.sock.sendMessage(sender, {
+        react: { key: msg.key, text: '⏳' }
+    });
 
-            logger.info(`✅ Command executed: ${command} by ${participant}`);
+    try {
+        await handler.execute(msg, params, {
+            bot: this.bot,
+            sender,
+            participant,
+            isGroup: sender.endsWith('@g.us')
+        });
 
-            if (this.bot.telegramBridge) {
-                await this.bot.telegramBridge.logToTelegram('📝 Command Executed',
-                    `Command: ${command}\nUser: ${participant}\nChat: ${sender}`);
-            }
+        // Clear reaction on success for ALL commands
+        await this.bot.sock.sendMessage(sender, {
+            react: { key: msg.key, text: '' }
+        });
 
-        } catch (error) {
-            logger.error(`❌ Command failed: ${command}`, error);
+        logger.info(`✅ Command executed: ${command} by ${participant}`);
 
+        if (this.bot.telegramBridge) {
+            await this.bot.telegramBridge.logToTelegram('📝 Command Executed',
+                `Command: ${command}\nUser: ${participant}\nChat: ${sender}`);
+        }
+
+    } catch (error) {
+        // Keep ❌ reaction on error (don't clear it)
+        await this.bot.sock.sendMessage(sender, {
+            react: { key: msg.key, text: '❌' }
+        });
+
+        logger.error(`❌ Command failed: ${command} | ${error.message || 'No message'}`);
+        logger.debug(error.stack || error);
+
+        if (!error._handledBySmartError && error?.message) {
             await this.bot.sendMessage(sender, {
                 text: `❌ Command failed: ${error.message}`
             });
-
-            if (this.bot.telegramBridge) {
-                await this.bot.telegramBridge.logToTelegram('❌ Command Error',
-                    `Command: ${command}\nError: ${error.message}\nUser: ${participant}`);
-            }
         }
+
+        if (this.bot.telegramBridge) {
+            await this.bot.telegramBridge.logToTelegram('❌ Command Error',
+                `Command: ${command}\nError: ${error.message}\nUser: ${participant}`);
+        }
+    }
+
 
     } else if (respondToUnknown) {
         await this.bot.sendMessage(sender, {

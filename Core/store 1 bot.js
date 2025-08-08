@@ -24,6 +24,10 @@ class HyperWaBot {
         this.qrCodeSent = false;
         this.useMongoAuth = config.get('auth.useMongoAuth', false);
         
+        // Add flag to track if this is the first connection
+        this.isFirstConnection = true;
+        this.hasConnectedBefore = false;
+        
         // Enhanced features from example
         this.msgRetryCounterCache = new NodeCache();
         this.onDemandMap = new Map();
@@ -250,6 +254,8 @@ class HyperWaBot {
 
             if (shouldReconnect && !this.isShuttingDown) {
                 logger.warn('🔄 Connection closed, reconnecting...');
+                // Mark as not first connection since we're reconnecting
+                this.isFirstConnection = false;
                 setTimeout(() => this.startWhatsApp(), 5000);
             } else {
                 logger.error('❌ Connection closed permanently. Please delete auth_info and restart.');
@@ -448,28 +454,53 @@ class HyperWaBot {
     }
 
     async onConnectionOpen() {
-        logger.info(`✅ Connected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`);
-
-        if (!config.get('bot.owner') && this.sock.user) {
-            config.set('bot.owner', this.sock.user.id);
-            logger.info(`👑 Owner set to: ${this.sock.user.id}`);
-        }
-
-        if (this.telegramBridge) {
-            try {
-                await this.telegramBridge.setupWhatsAppHandlers();
-            } catch (err) {
-                logger.warn('⚠️ Failed to setup Telegram WhatsApp handlers:', err.message);
+        const isReconnection = this.hasConnectedBefore;
+        
+        if (isReconnection) {
+            logger.info(`🔄 Reconnected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`);
+            
+            // Log reconnection to Telegram if available
+            if (this.telegramBridge) {
+                try {
+                    await this.telegramBridge.logToTelegram(
+                        '🔄 WhatsApp Reconnected',
+                        `Bot reconnected to WhatsApp successfully`
+                    );
+                } catch (err) {
+                    logger.warn('⚠️ Telegram reconnection log failed:', err.message);
+                }
             }
-        }
+        } else {
+            logger.info(`✅ Connected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`);
+            
+            // Mark that we've connected at least once
+            this.hasConnectedBefore = true;
 
-        await this.sendStartupMessage();
+            if (!config.get('bot.owner') && this.sock.user) {
+                config.set('bot.owner', this.sock.user.id);
+                logger.info(`👑 Owner set to: ${this.sock.user.id}`);
+            }
 
-        if (this.telegramBridge) {
-            try {
-                await this.telegramBridge.syncWhatsAppConnection();
-            } catch (err) {
-                logger.warn('⚠️ Telegram sync error:', err.message);
+            if (this.telegramBridge) {
+                try {
+                    await this.telegramBridge.setupWhatsAppHandlers();
+                } catch (err) {
+                    logger.warn('⚠️ Failed to setup Telegram WhatsApp handlers:', err.message);
+                }
+            }
+
+            // Only send startup message on first connection
+            if (this.isFirstConnection) {
+                await this.sendStartupMessage();
+                this.isFirstConnection = false;
+            }
+
+            if (this.telegramBridge) {
+                try {
+                    await this.telegramBridge.syncWhatsAppConnection();
+                } catch (err) {
+                    logger.warn('⚠️ Telegram sync error:', err.message);
+                }
             }
         }
     }

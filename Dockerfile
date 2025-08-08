@@ -1,21 +1,21 @@
-
 FROM node:18-alpine
 
-# Install git and other dependencies
-RUN apk add --no-cache git python3 make g++
+# Install dependencies
+RUN apk add --no-cache git python3 make g++ tzdata haveged
+
+# Set timezone (optional but recommended)
+ENV TZ=Asia/Karachi
+ENV NODE_ENV=production
 
 # Create app directory
 WORKDIR /app
 
-# Install app dependencies
+# Install dependencies
 COPY package*.json ./
 RUN npm install
 
-# Copy app source
+# Copy source code
 COPY . .
 
-# Expose the port (if your app uses one, like 3000)
-# EXPOSE 3000
-
-# Run the bot
-CMD ["npm", "start"]
+# Start haveged and bot
+CMD ["sh", "-c", "haveged -F & npm start"]

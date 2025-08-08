@@ -47,43 +47,72 @@ class HyperWaBot {
         this.messageQueue = [];
         this.isProcessingMessages = false;
         
+
         // Load existing store data
         this.store.loadFromFile();
     }
+
+ 
 
     async initialize() {
         logger.info('🔧 Initializing HyperWa Userbot...');
 
         try {
-            this.db = await connectDb();
-            logger.info('✅ Database connected successfully!');
+            // Database connection with retry logic
+            await this.initializeDatabase();
+            
+            // Initialize Telegram bridge if enabled
+            await this.initializeTelegramBridge();
+            
+            // Load modules
+            await this.moduleLoader.loadModules();
+            
+            // Start WhatsApp connection
+            await this.startWhatsApp();
+
+            logger.info('✅ HyperWa Userbot initialized successfully!');
         } catch (error) {
-            logger.error('❌ Failed to connect to database:', error);
-            process.exit(1);
+            logger.error('❌ Failed to initialize bot:', error);
+            throw error;
         }
+    }
 
-        if (config.get('telegram.enabled')) {
+    async initializeDatabase() {
+        let retries = 3;
+        while (retries > 0) {
             try {
-                const TelegramBridge = require('../telegram/bridge');
-                this.telegramBridge = new TelegramBridge(this);
-                await this.telegramBridge.initialize();
-                logger.info('✅ Telegram bridge initialized');
-
-                try {
-                    await this.telegramBridge.sendStartMessage();
-                } catch (err) {
-                    logger.warn('⚠️ Failed to send start message via Telegram:', err.message);
-                }
+                this.db = await connectDb();
+                logger.info('✅ Database connected successfully!');
+                return;
             } catch (error) {
-                logger.warn('⚠️ Telegram bridge failed to initialize:', error.message);
-                this.telegramBridge = null;
+                retries--;
+                logger.error(`❌ Database connection failed (${3 - retries}/3):`, error.message);
+                if (retries === 0) {
+                    throw new Error('Failed to connect to database after 3 attempts');
+                }
+                await this.sleep(2000);
             }
         }
+    }
 
-        await this.moduleLoader.loadModules();
-        await this.startWhatsApp();
+    async initializeTelegramBridge() {
+        if (!config.get('telegram.enabled')) return;
 
-        logger.info('✅ HyperWa Userbot initialized successfully!');
+        try {
+            const TelegramBridge = require('../watg-bridge/bridge');
+            this.telegramBridge = new TelegramBridge(this);
+            await this.telegramBridge.initialize();
+            logger.info('✅ Telegram bridge initialized');
+
+            try {
+                await this.telegramBridge.sendStartMessage();
+            } catch (err) {
+                logger.warn('⚠️ Failed to send start message via Telegram:', err.message);
+            }
+        } catch (error) {
+            logger.warn('⚠️ Telegram bridge failed to initialize:', error.message);
+            this.telegramBridge = null;
+        }
     }
 
     async startWhatsApp() {

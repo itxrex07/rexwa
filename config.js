@@ -6,7 +6,7 @@ class Config {
                 company: 'Dawium Technologies',
                 prefix: '.',
                 version: '2.0.0',
-                owner: '923417033005@s.whatsapp.net', // Include full JID
+                owner: '9230754174221@s.whatsapp.net', // Include full JID
                 clearAuthOnStart: false
             },
 
@@ -30,15 +30,15 @@ class Config {
             },
 
             mongo: {
-                uri: 'mongodb+srv://itxelijah07:ivp8FYGsbVfjQOkj@cluster0.wh25x.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0',
-                dbName: 'HyperWA'
+                uri: 'mongodb+srv://irexanon:xUf7PCf9cvMHy8g6@rexdb.d9rwo.mongodb.net/?retryWrites=true&w=majority&appName=RexDB',
+                dbName: 'RexWA'
             },
 
             telegram: {
                 enabled: true,
-                botToken: '7822179405:AAHI1zW7qkXZsqOtyu9NeRdmquwbx1aZu0o',
+                botToken: '8340169817:AAE3p5yc0uSg-FOZMirWVu9sj9x4Jp8CCug',
                 botPassword: '1122',
-                chatId: '-1002783833178',
+                chatId: '-1002846269080',
                 logChannel: '-100000000000',
                 features: {
                     topics: true,

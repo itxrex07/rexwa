@@ -32,7 +32,10 @@
     "winston": "^3.11.0",
     "winston-daily-rotate-file": "^4.7.1",
     "wa-sticker-formatter": "^4.0.4",
-    "qrcode": "^1.5.1"
+    "qrcode": "^1.5.1",
+    "dotenv": "^17.2.1",
+    "@vitalets/google-translate-api": "^9.2.0",
+    "@google/generative-ai": "^0.24.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

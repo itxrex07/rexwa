@@ -3,7 +3,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const { exec } = require('child_process');
 const helpers = require('../utils/helpers');
-
+const logger = require('../Core/logger');
 
 class CoreModule {
     constructor(bot) {
@@ -21,6 +21,7 @@ class CoreModule {
                 description: 'Check bot response time',
                 usage: '.ping',
                 permissions: 'public',
+                aliases: ['p'],
                 ui: {
                     processingText: '🏓 *Pinging...*',
                     errorText: '❌ Failed to ping'
@@ -32,11 +33,19 @@ class CoreModule {
                 description: 'Show bot status and statistics',
                 usage: '.status',
                 permissions: 'public',
+                aliases: ['stats', 'info'],
                 ui: {
                     processingText: '📊 Gathering status...',
                     errorText: '❌ Failed to retrieve status'
                 },
                 execute: this.status.bind(this)
+            },
+            {
+                name: 'activity',
+                description: 'View user activity logs',
+                usage: '.activity [user] [days]',
+                permissions: 'admin',
+                execute: this.viewActivity.bind(this)
             },
             {
                 name: 'restart',
@@ -48,6 +57,13 @@ class CoreModule {
                     errorText: '❌ Restart failed'
                 },
                 execute: this.restart.bind(this)
+            },
+            {
+                name: 'logs',
+                description: 'Send or display bot logs (owner only)',
+                usage: '.logs [display]',
+                permissions: 'owner',
+                execute: this.logs.bind(this)
             },
             {
                 name: 'mode',
@@ -121,13 +137,13 @@ class CoreModule {
         this.startTime = Date.now();
     }
 
-    async ping(msg, params, context) {
-        const start = Date.now();
-        const latency = Date.now() - start;
-        this.incrementCommandCount('ping');
-      return ` *Pong!* • ${latency}ms`;
-
-    }
+async ping(msg, params, context) {
+    const start = Date.now();
+    this.incrementCommandCount('ping');
+    await new Promise(resolve => setTimeout(resolve, 0)); 
+    const latency = Date.now() - start;
+    return ` *Pong!* • ${latency}ms`;
+}
 
     async status(msg, params, context) {
         const uptime = this.getUptime();
@@ -226,36 +242,151 @@ async restart(msg, params, context) {
         return `📢 *Broadcast Sent*\n\nSent to ${sent} chats.`;
     }
 
-    async updateCode(msg, params, context) {
-        return new Promise((resolve, reject) => {
-            exec('git pull', async (err, stdout, stderr) => {
-                if (err || stderr) {
-                    return reject(stderr || err.message);
-                }
+async updateCode(msg, params, context) {
+    return new Promise((resolve) => {
+        exec('git pull', async (err, stdout, stderr) => {
+            const output = stdout?.trim() || '';
+            const errorOutput = stderr?.trim() || '';
+            this.incrementCommandCount('update');
 
+            let message;
+
+            if (err) {
+                message = `❌ *Git Pull Failed*\n\n\`\`\`\n${errorOutput || err.message || 'Unknown error'}\n\`\`\``;
+            } else {
                 if (this.bot.telegramBridge) {
-                    await this.bot.telegramBridge.logToTelegram('📥 Update Pulled', stdout);
+                    await this.bot.telegramBridge.logToTelegram('📥 Update Pulled', output);
                 }
+                message = `📥 *Update Complete*\n\n\`\`\`\n${output || 'No changes'}\n\`\`\``;
+            }
 
-                this.incrementCommandCount('update');
-                resolve(`📥 *Update Complete*\n\n\`\`\`\n${stdout.trim()}\n\`\`\``);
-            });
+            resolve(message);
         });
+    });
+}
+
+
+    async viewActivity(msg, params, context) {
+        const targetUser = params[0];
+        const days = parseInt(params[1]) || 7;
+        
+        try {
+            const activity = await this.getUserActivity(targetUser, days);
+            
+            let activityText = `📊 *User Activity Report*\n\n`;
+            
+            if (targetUser) {
+                activityText += `👤 *User:* ${targetUser}\n`;
+            } else {
+                activityText += `👥 *All Users*\n`;
+            }
+            
+            activityText += `📅 *Period:* Last ${days} days\n\n`;
+            activityText += `💬 *Messages:* ${activity.messages}\n`;
+            activityText += `⚡ *Commands:* ${activity.commands}\n`;
+            activityText += `📊 *Success Rate:* ${activity.successRate}%\n`;
+            
+            if (activity.topCommands.length > 0) {
+                activityText += `\n🔥 *Top Commands:*\n`;
+                activity.topCommands.forEach((cmd, index) => {
+                    activityText += `  ${index + 1}. ${cmd.name} (${cmd.count}x)\n`;
+                });
+            }
+            
+            await context.bot.sendMessage(context.sender, { text: activityText });
+            
+        } catch (error) {
+            await context.bot.sendMessage(context.sender, {
+                text: `❌ Failed to get activity report: ${error.message}`
+            });
+        }
+    } 
+
+async logs(msg, params, context) {
+    const jid = msg.key.remoteJid;
+    const displayMode = params[0]?.toLowerCase() === 'display';
+    const logFilePath = path.join(__dirname, '../logs', 'bot.log');
+
+    // Check if log file exists
+    if (!await fs.pathExists(logFilePath)) {
+        logger.error('Log file does not exist:', logFilePath);
+        await this.bot.sock.sendMessage(jid, { text: '❌ No log file found at the specified path.' });
+        return;
     }
 
-    async runShell(msg, params, context) {
-        const command = params.join(' ');
-        if (!command) return '❌ Usage: `.sh <command>`';
-        return new Promise((resolve, reject) => {
-            exec(command, { timeout: 10000 }, (err, stdout, stderr) => {
-                if (err || stderr) {
-                    return reject(stderr || err.message);
-                }
-                this.incrementCommandCount('sh');
-                resolve(`🖥️ *Command Output*\n\n\`\`\`\n${stdout.trim()}\n\`\`\``);
+    logger.debug('Processing log file:', logFilePath);
+
+    if (displayMode) {
+        try {
+            const content = await fs.readFile(logFilePath, 'utf8');
+            const lines = content.split('\n').filter(l => l.trim());
+            const recent = lines.slice(-10).join('\n') || 'No recent logs.';
+            const logText = `📜 *Recent Logs* (Last 10 lines)\n\n\`\`\`\n${recent}\n\`\`\`\n🕒 ${new Date().toLocaleTimeString()}`;
+            await this.bot.sock.sendMessage(jid, { text: logText });
+
+            if (this.bot.telegramBridge) {
+                await this.bot.telegramBridge.logToTelegram('📜 Logs Displayed', 'Recent logs viewed by owner');
+            }
+        } catch (err) {
+            logger.error('Failed to read/display log file:', err);
+            await this.bot.sock.sendMessage(jid, {
+                text: `❌ Failed to display logs: ${err.message || 'Unknown error'}`
             });
-        });
+        }
+    } else {
+        try {
+            const fileBuffer = await fs.readFile(logFilePath);
+            if (fileBuffer.length === 0) {
+                logger.warn('Log file is empty:', logFilePath);
+                await this.bot.sock.sendMessage(jid, { text: '❌ Log file is empty.' });
+                return;
+            }
+
+            await this.bot.sock.sendMessage(jid, {
+                document: {
+                    stream: fileBuffer,
+                    filename: 'bot.log',
+                    mimetype: 'text/plain'
+                },
+                caption: `📜 *Latest Log File*\n\n📄 File: bot.log\n🕒 ${new Date().toLocaleTimeString()}`
+            });
+
+            if (this.bot.telegramBridge) {
+                await this.bot.telegramBridge.logToTelegram('📜 Log File Sent', 'File: bot.log');
+            }
+        } catch (err) {
+            logger.error('Failed to send log file:', err);
+            await this.bot.sock.sendMessage(jid, {
+                text: `❌ Failed to send log file: ${err.message || 'Unknown error'}`
+            });
+        }
     }
+
+    this.incrementCommandCount('logs');
+}
+
+
+async runShell(msg, params, context) {
+    const command = params.join(' ');
+    if (!command) return '❌ Usage: `.sh <command>`';
+
+    return new Promise((resolve) => {
+        exec(command, { timeout: 10000 }, (err, stdout, stderr) => {
+            this.incrementCommandCount('sh');
+
+            const output = stdout?.trim() || '';
+            const errorOutput = stderr?.trim() || '';
+            const message = err
+                ? `❌ *Shell Command Error*\n\n\`\`\`\n${errorOutput || err.message || 'Unknown error'}\n\`\`\``
+                : `🖥️ *Command Output*\n\n\`\`\`\n${output || errorOutput || '✅ Command executed with no output'}\n\`\`\``;
+
+            resolve(message);
+        });
+    });
+}
+
+
+
 
     getUptime() {
         const sec = Math.floor((Date.now() - this.startTime) / 1000);

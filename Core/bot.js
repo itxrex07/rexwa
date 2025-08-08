@@ -182,35 +182,29 @@ class HyperWaBot {
         this.authState = { state, saveCreds };
     }
 
-    async createSocket() {
-        const { version } = await fetchLatestBaileysVersion();
+async createSocket() {
+    const { version } = await fetchLatestBaileysVersion();
 
-        this.sock = makeWASocket({
-            auth: this.authState.state,
-            version,
-                // Caching makes the store faster to send/recv messages
-                keys: makeCacheableSignalKeyStore(this.authState.state.keys, logger),
-            printQRInTerminal: false,
-            logger: logger.child({ module: 'baileys' }),
-            getMessage: async (key) => {
-                // Try to get message from store first
-            }
-            getMessage: this.getMessage.bind(this),
-            browser: ['HyperWa', 'Chrome', '3.0'],
-            // Add connection options for stability
-            connectTimeoutMs: 60000,
-            defaultQueryTimeoutMs: 60000,
-            keepAliveIntervalMs: 30000,
-            // Enable message retry
-            retryRequestDelayMs: 250,
-            maxMsgRetryCount: 5,
-        });
+    this.sock = makeWASocket({
+        auth: this.authState.state,
+        version,
+        keys: makeCacheableSignalKeyStore(this.authState.state.keys, logger),
+        printQRInTerminal: false,
+        logger: logger.child({ module: 'baileys' }),
+        getMessage: this.getMessage.bind(this), // Corrected line
+        browser: ['HyperWa', 'Chrome', '3.0'],
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 30000,
+        retryRequestDelayMs: 250,
+        maxMsgRetryCount: 5,
+    });
 
-        // Bind store to socket events
-        this.store.bind(this.sock.ev);
-        
-        this.setupEventHandlers();
-    }
+    // Bind store to socket events
+    this.store.bind(this.sock.ev);
+    
+    this.setupEventHandlers();
+}
 
     async waitForConnection() {
         return new Promise((resolve, reject) => {

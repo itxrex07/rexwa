@@ -35,7 +35,8 @@
     "wa-sticker-formatter": "^4.0.4",
     "qrcode": "^1.5.1",
     "dotenv": "^17.2.1",
-    "@vitalets/google-translate-api": "^9.2.0",
+    "cheerio": "^1.1.2",
+    "canvas": "^3.1.2",
     "@google/generative-ai": "^0.24.1"
   },
   "devDependencies": {

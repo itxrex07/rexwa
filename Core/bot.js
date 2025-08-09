@@ -23,12 +23,22 @@ class HyperWaBot {
         this.qrCodeSent = false;
         this.useMongoAuth = config.get('auth.useMongoAuth', false);
         
-        // Enhanced features from example
-        this.msgRetryCounterCache = new NodeCache();
+        // Enhanced features from example - SIMPLE VERSION
+        this.msgRetryCounterCache = new NodeCache({
+            stdTTL: 300, // Just add TTL to prevent memory buildup
+            maxKeys: 500  // Limit cache size
+        });
         this.onDemandMap = new Map();
         this.autoReply = config.get('features.autoReply', false);
         this.enableTypingIndicators = config.get('features.typingIndicators', true);
         this.autoReadMessages = config.get('features.autoReadMessages', true);
+        
+        // Simple memory cleanup - just clear caches periodically
+        setInterval(() => {
+            if (this.onDemandMap.size > 100) {
+                this.onDemandMap.clear();
+            }
+        }, 300000); // Every 5 minutes
     }
 
     async initialize() {
@@ -139,77 +149,86 @@ class HyperWaBot {
     }
 
     setupEnhancedEventHandlers(saveCreds) {
-        // Enhanced event processing like in the example
+        // SIMPLE event processing - just wrap the original logic in try-catch
         this.sock.ev.process(async (events) => {
-            // Connection updates
-            if (events['connection.update']) {
-                await this.handleConnectionUpdate(events['connection.update']);
-            }
+            try {
+                // Connection updates
+                if (events['connection.update']) {
+                    await this.handleConnectionUpdate(events['connection.update']);
+                }
 
-            // Credentials updates
-            if (events['creds.update']) {
-                await saveCreds();
-            }
+                // Credentials updates
+                if (events['creds.update']) {
+                    await saveCreds();
+                }
 
-            // Label association handling
-            if (events['labels.association']) {
-                logger.info('📋 Label association update:', events['labels.association']);
-            }
+                // Messages upsert (most important)
+                if (events['messages.upsert']) {
+                    await this.handleMessagesUpsert(events['messages.upsert']);
+                }
 
-            // Label edit handling
-            if (events['labels.edit']) {
-                logger.info('📝 Label edit update:', events['labels.edit']);
-            }
+                // Only handle other events if not in Docker (simple check)
+                if (!process.env.DOCKER) {
+                    // Handle all other events normally
+                    if (events['labels.association']) {
+                        logger.info('📋 Label association update:', events['labels.association']);
+                    }
 
-            // Call events
-            if (events.call) {
-                logger.info('📞 Call event received:', events.call);
-                await this.handleCallEvent(events.call);
-            }
+                    if (events['labels.edit']) {
+                        logger.info('📝 Label edit update:', events['labels.edit']);
+                    }
 
-            // History sync
-            if (events['messaging-history.set']) {
-                await this.handleHistorySync(events['messaging-history.set']);
-            }
+                    if (events.call) {
+                        logger.info('📞 Call event received:', events.call);
+                    }
 
-            // Messages upsert (new/updated messages)
-            if (events['messages.upsert']) {
-                await this.handleMessagesUpsert(events['messages.upsert']);
-            }
+                    if (events['messaging-history.set']) {
+                        const { chats, contacts, messages, isLatest, progress, syncType } = events['messaging-history.set'];
+                        if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
+                            logger.info('📥 Received on-demand history sync, messages:', messages.length);
+                        }
+                        logger.info(`📊 History sync: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} msgs (latest: ${isLatest}, progress: ${progress}%)`);
+                    }
 
-            // Message updates (delivery, read, etc.)
-            if (events['messages.update']) {
-                await this.handleMessagesUpdate(events['messages.update']);
-            }
+                    if (events['messages.update']) {
+                        for (const { key, update } of events['messages.update']) {
+                            if (update.pollUpdates) {
+                                logger.info('📊 Poll update received');
+                            }
+                        }
+                    }
 
-            // Message receipts
-            if (events['message-receipt.update']) {
-                logger.debug('📨 Message receipt update:', events['message-receipt.update']);
-            }
+                    if (events['message-receipt.update']) {
+                        logger.debug('📨 Message receipt update');
+                    }
 
-            // Message reactions
-            if (events['messages.reaction']) {
-                await this.handleMessageReaction(events['messages.reaction']);
-            }
+                    if (events['messages.reaction']) {
+                        logger.info(`😀 Message reactions: ${events['messages.reaction'].length}`);
+                    }
 
-            // Presence updates
-            if (events['presence.update']) {
-                await this.handlePresenceUpdate(events['presence.update']);
-            }
+                    if (events['presence.update']) {
+                        logger.debug('👤 Presence updates');
+                    }
 
-            // Chat updates
-            if (events['chats.update']) {
-                logger.debug('💬 Chats updated:', events['chats.update'].length);
-            }
+                    if (events['chats.update']) {
+                        logger.debug('💬 Chats updated');
+                    }
 
-            // Contact updates
-            if (events['contacts.update']) {
-                await this.handleContactsUpdate(events['contacts.update']);
-            }
+                    if (events['contacts.update']) {
+                        for (const contact of events['contacts.update']) {
+                            if (typeof contact.imgUrl !== 'undefined') {
+                                logger.info(`👤 Contact ${contact.id} profile pic updated`);
+                            }
+                        }
+                    }
 
-            // Chat deletions
-            if (events['chats.delete']) {
-                logger.info('🗑️ Chats deleted:', events['chats.delete']);
+                    if (events['chats.delete']) {
+                        logger.info('🗑️ Chats deleted:', events['chats.delete']);
+                    }
+                }
+            } catch (error) {
+                // Just log the error and continue - don't crash
+                logger.warn('⚠️ Event processing error:', error.message);
             }
         });
     }
@@ -256,52 +275,25 @@ class HyperWaBot {
         } else if (connection === 'open') {
             await this.onConnectionOpen();
         }
-
-        logger.debug('🔗 Connection update:', update);
-    }
-
-    async handleCallEvent(callEvents) {
-        for (const call of callEvents) {
-            logger.info(`📞 ${call.isVideo ? 'Video' : 'Voice'} call ${call.status} from ${call.from}`);
-            
-            if (this.telegramBridge) {
-                try {
-                    await this.telegramBridge.logToTelegram(
-                        '📞 Call Event',
-                        `${call.isVideo ? 'Video' : 'Voice'} call ${call.status} from ${call.from}`
-                    );
-                } catch (err) {
-                    logger.warn('⚠️ Failed to log call to Telegram:', err.message);
-                }
-            }
-        }
-    }
-
-    async handleHistorySync(historyData) {
-        const { chats, contacts, messages, isLatest, progress, syncType } = historyData;
-        
-        if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
-            logger.info('📥 Received on-demand history sync, messages:', messages.length);
-        }
-        
-        logger.info(`📊 History sync: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} msgs (latest: ${isLatest}, progress: ${progress}%)`);
     }
 
     async handleMessagesUpsert(upsert) {
-        logger.debug('📨 Messages upsert:', JSON.stringify(upsert, null, 2));
-
-        if (upsert.requestId) {
-            logger.info(`🔄 Placeholder message received for request ID: ${upsert.requestId}`);
-        }
-
         if (upsert.type === 'notify') {
             for (const msg of upsert.messages) {
-                await this.processIncomingMessage(msg, upsert);
+                try {
+                    await this.processIncomingMessage(msg, upsert);
+                } catch (error) {
+                    logger.warn('⚠️ Message processing error:', error.message);
+                }
             }
         }
 
         // Call original message handler
-        await this.messageHandler.handleMessages({ messages: upsert.messages, type: upsert.type });
+        try {
+            await this.messageHandler.handleMessages({ messages: upsert.messages, type: upsert.type });
+        } catch (error) {
+            logger.warn('⚠️ Original message handler error:', error.message);
+        }
     }
 
     async processIncomingMessage(msg, upsert) {
@@ -335,70 +327,6 @@ class HyperWaBot {
         }
     }
 
-    async handleMessagesUpdate(updates) {
-        logger.debug('📝 Messages update:', JSON.stringify(updates, null, 2));
-
-        for (const { key, update } of updates) {
-            if (update.pollUpdates) {
-                // Handle poll updates
-                const pollCreation = {}; // You would need to implement poll creation message retrieval
-                if (pollCreation) {
-                    const aggregation = getAggregateVotesInPollMessage({
-                        message: pollCreation,
-                        pollUpdates: update.pollUpdates,
-                    });
-                    logger.info('📊 Poll update aggregation:', aggregation);
-                }
-            }
-        }
-    }
-
-    async handleMessageReaction(reactions) {
-        for (const reaction of reactions) {
-            logger.info(`😀 Reaction ${reaction.reaction.text || 'removed'} by ${reaction.key.participant || reaction.key.remoteJid}`);
-            
-            if (this.telegramBridge) {
-                try {
-                    await this.telegramBridge.logToTelegram(
-                        '😀 Message Reaction',
-                        `Reaction: ${reaction.reaction.text || 'removed'} by ${reaction.key.participant || reaction.key.remoteJid}`
-                    );
-                } catch (err) {
-                    logger.warn('⚠️ Failed to log reaction to Telegram:', err.message);
-                }
-            }
-        }
-    }
-
-    async handlePresenceUpdate(presences) {
-        for (const presence of presences) {
-            logger.debug(`👤 Presence update for ${presence.id}: ${presence.presences?.[Object.keys(presence.presences)[0]]?.lastKnownPresence}`);
-        }
-    }
-
-    async handleContactsUpdate(contacts) {
-        for (const contact of contacts) {
-            if (typeof contact.imgUrl !== 'undefined') {
-                const newUrl = contact.imgUrl === null
-                    ? null
-                    : await this.sock.profilePictureUrl(contact.id).catch(() => null);
-                
-                logger.info(`👤 Contact ${contact.id} has a new profile pic: ${newUrl}`);
-                
-                if (this.telegramBridge) {
-                    try {
-                        await this.telegramBridge.logToTelegram(
-                            '👤 Profile Update',
-                            `Contact ${contact.id} updated their profile picture`
-                        );
-                    } catch (err) {
-                        logger.warn('⚠️ Failed to log profile update to Telegram:', err.message);
-                    }
-                }
-            }
-        }
-    }
-
     async sendMessageWithTyping(content, jid) {
         if (!this.sock || !this.enableTypingIndicators) {
             return await this.sock?.sendMessage(jid, content);
@@ -421,7 +349,6 @@ class HyperWaBot {
     }
 
     async getMessage(key) {
-        // Enhanced message retrieval - you can implement your own storage logic here
         return proto.Message.fromObject({ conversation: 'Message not found' });
     }
 
@@ -498,41 +425,6 @@ class HyperWaBot {
         }
         
         return await this.sock.sendMessage(jid, content);
-    }
-
-    // New enhanced methods
-    async requestPlaceholderResend(messageKey) {
-        if (!this.sock) return null;
-        return await this.sock.requestPlaceholderResend(messageKey);
-    }
-
-    async fetchMessageHistory(count, fromKey, timestamp) {
-        if (!this.sock) return null;
-        return await this.sock.fetchMessageHistory(count, fromKey, timestamp);
-    }
-
-    async readMessages(keys) {
-        if (!this.sock) return;
-        return await this.sock.readMessages(keys);
-    }
-
-    async updatePresence(presence, jid) {
-        if (!this.sock) return;
-        return await this.sock.sendPresenceUpdate(presence, jid);
-    }
-
-    async subscribePresence(jid) {
-        if (!this.sock) return;
-        return await this.sock.presenceSubscribe(jid);
-    }
-
-    async getProfilePicture(jid) {
-        if (!this.sock) return null;
-        try {
-            return await this.sock.profilePictureUrl(jid);
-        } catch {
-            return null;
-        }
     }
 
     // Configuration methods for new features

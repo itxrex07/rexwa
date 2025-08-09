@@ -1,9 +1,22 @@
 FROM node:18-alpine
 
-# Install dependencies
-RUN apk add --no-cache git python3 make g++ tzdata haveged
+# Install build dependencies for node-canvas and other native modules
+RUN apk add --no-cache \
+    git \
+    python3 \
+    make \
+    g++ \
+    tzdata \
+    haveged \
+    pkgconfig \
+    pixman-dev \
+    cairo-dev \
+    pango-dev \
+    jpeg-dev \
+    giflib-dev \
+    librsvg-dev
 
-# Set timezone (optional but recommended)
+# Set timezone
 ENV TZ=Asia/Karachi
 ENV NODE_ENV=production
 

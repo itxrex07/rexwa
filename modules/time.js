@@ -65,7 +65,8 @@ class TimeModule {
     try {
       // Replace spaces with underscores and encode the location for the API
       const encodedLocation = encodeURIComponent(location.replace(/\s+/g, '_'));
-      const response = await axios.get(`http://worldtimeapi.org/api/timezone/${encodedLocation}`);
+      // Corrected code with https
+const response = await axios.get(`https://worldtimeapi.org/api/timezone/${encodedLocation}`);
 
       if (!response.data.datetime || !response.data.timezone) {
         throw new Error('Invalid response from time API');

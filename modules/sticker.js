@@ -18,7 +18,7 @@ class StickerModule {
                 name: 'sticker',
                 description: 'Create sticker from image/video',
                 usage: '.sticker (reply to image/video)',
-                aliases: ['s'], 
+                aliases: ['s'],
                 permissions: 'public',
                 ui: { processingText: null, errorText: '❌ *Sticker Creation Failed*' },
                 execute: this.createSticker.bind(this)

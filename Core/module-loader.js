@@ -1,8 +1,10 @@
+
 const path = require('path');
 const fs = require('fs-extra');
 const logger = require('./logger');
 const config = require('../config');
 const helpers = require('../utils/helpers');
+// Temporary in-memory store; replace with DB for persistence
 const helpPreferences = new Map();
 class ModuleLoader {
     constructor(bot) {
@@ -102,7 +104,42 @@ class ModuleLoader {
             }
         };
 
+        // Reload Module Command
+        const reloadModuleCommand = {
+            name: 'rlm',
+            description: 'Reload a module',
+            usage: '.rlm <module_name>',
+            permissions: 'owner',
+            execute: async (msg, params, context) => {
+                if (params.length === 0) {
+                    const moduleList = this.listModules().join('\n• ');
+                    return context.bot.sendMessage(context.sender, {
+                        text: `🔧 *Reload Module*\n\n📋 Available modules:\n• ${moduleList}\n\n💡 Usage: \`.rlm <module_name>\``
+                    });
+                }
 
+                const moduleName = params[0];
+                
+                try {
+                    const processingMsg = await context.bot.sendMessage(context.sender, {
+                        text: `⚡ *Reloading Module*\n\n🔄 Restarting: \`${moduleName}\`\n⏳ Please wait...`
+                    });
+
+                    await this.reloadModule(moduleName);
+                    
+                    await context.bot.sock.sendMessage(context.sender, {
+                        text: `✅ *Module Reloaded Successfully*\n\n📦 Module: \`${moduleName}\`\n🔄 Status: Restarted\n⏰ ${new Date().toLocaleTimeString()}`,
+                        edit: processingMsg.key
+                    });
+
+                } catch (error) {
+                    logger.error('Failed to reload module:', error);
+                    await context.bot.sendMessage(context.sender, {
+                        text: `❌ *Module Reload Failed*\n\n🚫 Error: ${error.message}\n📦 Module: \`${moduleName}\``
+                    });
+                }
+            }
+        };
 
         // List Modules Command
         const listModulesCommand = {
@@ -468,6 +505,17 @@ const wrappedCmd = shouldWrap ? {
         logger.info(`🚫 Unloaded module: ${moduleId}`);
     }
 
+    async reloadModule(moduleId) {
+        const moduleInfo = this.modules.get(moduleId);
+        if (!moduleInfo) {
+            throw new Error(`Module ${moduleId} not found for reloading`);
+        }
+        
+        logger.info(`🔄 Reloading module: ${moduleId}`);
+        await this.unloadModule(moduleId);
+        await this.loadModule(moduleInfo.path, moduleInfo.isSystem);
+        logger.info(`✅ Reloaded module: ${moduleId}`);
+    }
 }
 
 module.exports = ModuleLoader;

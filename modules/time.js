@@ -61,26 +61,49 @@ class TimeModule {
    * @param {string} location - The city, region, or country name.
    * @returns {Promise<object>} Time data including datetime and timezone.
    */
-  async getTimeForLocation(location) {
-    try {
-      // Replace spaces with underscores and encode the location for the API
-      const encodedLocation = encodeURIComponent(location.replace(/\s+/g, '_'));
-      // Corrected code with https
-const response = await axios.get(`https://worldtimeapi.org/api/timezone/${encodedLocation}`);
+/**
+ * Fetches the current time for a given location using the World Time API.
+ * This version searches for a matching timezone from the API's list.
+ * @param {string} location - The city, region, or country name provided by the user.
+ * @returns {Promise<object>} Time data including datetime and timezone.
+ */
+async getTimeForLocation(location) {
+  try {
+    // 1. Fetch the list of all valid timezones from the API.
+    const allTimezonesResponse = await axios.get('https://worldtimeapi.org/api/timezone');
+    const allTimezones = allTimezonesResponse.data;
 
-      if (!response.data.datetime || !response.data.timezone) {
-        throw new Error('Invalid response from time API');
-      }
+    // 2. Prepare the user's input for searching (case-insensitive, uses underscore).
+    const searchQuery = location.replace(/\s+/g, '_').toLowerCase();
 
-      return {
-        datetime: response.data.datetime,
-        timezone: response.data.timezone,
-      };
-    } catch (error) {
-      throw new Error(error.response?.data?.error || 'Location not found or API error');
+    // 3. Find the first timezone that includes the user's search query.
+    // e.g., input "sydney" will match "Australia/Sydney".
+    const foundTimezone = allTimezones.find(tz => tz.toLowerCase().includes(searchQuery));
+
+    // 4. If no matching timezone is found, throw a clear error.
+    if (!foundTimezone) {
+      throw new Error('Location not found.');
     }
-  }
 
+    // 5. A valid timezone was found, now fetch the time for it.
+    // The foundTimezone is already in the correct `Area/Location` format.
+    const response = await axios.get(`https://worldtimeapi.org/api/timezone/${foundTimezone}`);
+
+    if (!response.data.datetime || !response.data.timezone) {
+      throw new Error('Invalid response from time API');
+    }
+
+    return {
+      datetime: response.data.datetime,
+      timezone: response.data.timezone,
+    };
+  } catch (error) {
+    // Pass along a cleaner error message.
+    // If the API returned a specific error (like `error.response.data.error`), use it.
+    // Otherwise, use the error message we created (e.g., "Location not found.").
+    throw new Error(error.response?.data?.error || error.message || 'API error');
+  }
+}
   /**
    * Formats a datetime string into 12-hour or 24-hour time format.
    * @param {string} datetime - The ISO datetime string from the API.

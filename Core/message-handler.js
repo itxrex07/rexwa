@@ -130,11 +130,30 @@ async handleCommand(msg, text) {
     const command = args[0].toLowerCase();
     const params = args.slice(1);
 
+    // Add presence and typing indicators for commands
+    try {
+        await this.bot.sock.readMessages([msg.key]);
+        await this.bot.sock.presenceSubscribe(sender);
+        await this.bot.sock.sendPresenceUpdate('composing', sender);
+    } catch (error) {
+        // Ignore presence errors
+    }
+
 if (!this.checkPermissions(msg, command)) {
     if (config.get('features.sendPermissionError', false)) {
+        try {
+            await this.bot.sock.sendPresenceUpdate('paused', sender);
+        } catch (error) {
+            // Ignore presence errors
+        }
         return this.bot.sendMessage(sender, {
             text: '❌ You don\'t have permission to use this command.'
         });
+    }
+    try {
+        await this.bot.sock.sendPresenceUpdate('paused', sender);
+    } catch (error) {
+        // Ignore presence errors
     }
     return; // silently ignore
 }
@@ -144,6 +163,11 @@ if (!this.checkPermissions(msg, command)) {
         const canExecute = await rateLimiter.checkCommandLimit(userId);
         if (!canExecute) {
             const remainingTime = await rateLimiter.getRemainingTime(userId);
+            try {
+                await this.bot.sock.sendPresenceUpdate('paused', sender);
+            } catch (error) {
+                // Ignore presence errors
+            }
             return this.bot.sendMessage(sender, {
                 text: `⏱️ Rate limit exceeded. Try again in ${Math.ceil(remainingTime / 1000)} seconds.`
             });
@@ -154,10 +178,14 @@ if (!this.checkPermissions(msg, command)) {
     const respondToUnknown = config.get('features.respondToUnknownCommands', false);
 
     if (handler) {
-    // Always add ⏳ reaction for ALL commands
-    await this.bot.sock.sendMessage(sender, {
-        react: { key: msg.key, text: '⏳' }
-    });
+    try {
+        // Always add ⏳ reaction for ALL commands
+        await this.bot.sock.sendMessage(sender, {
+            react: { key: msg.key, text: '⏳' }
+        });
+    } catch (error) {
+        // Ignore reaction errors
+    }
 
     try {
         await handler.execute(msg, params, {
@@ -167,10 +195,21 @@ if (!this.checkPermissions(msg, command)) {
             isGroup: sender.endsWith('@g.us')
         });
 
+        // Clear typing indicator on success
+        try {
+            await this.bot.sock.sendPresenceUpdate('paused', sender);
+        } catch (error) {
+            // Ignore presence errors
+        }
+
         // Clear reaction on success for ALL commands
-        await this.bot.sock.sendMessage(sender, {
-            react: { key: msg.key, text: '' }
-        });
+        try {
+            await this.bot.sock.sendMessage(sender, {
+                react: { key: msg.key, text: '' }
+            });
+        } catch (error) {
+            // Ignore reaction errors
+        }
 
         logger.info(`✅ Command executed: ${command} by ${participant}`);
 
@@ -180,10 +219,21 @@ if (!this.checkPermissions(msg, command)) {
         }
 
     } catch (error) {
+        // Clear typing indicator on error
+        try {
+            await this.bot.sock.sendPresenceUpdate('paused', sender);
+        } catch (error) {
+            // Ignore presence errors
+        }
+
         // Keep ❌ reaction on error (don't clear it)
-        await this.bot.sock.sendMessage(sender, {
-            react: { key: msg.key, text: '❌' }
-        });
+        try {
+            await this.bot.sock.sendMessage(sender, {
+                react: { key: msg.key, text: '❌' }
+            });
+        } catch (error) {
+            // Ignore reaction errors
+        }
 
         logger.error(`❌ Command failed: ${command} | ${error.message || 'No message'}`);
         logger.debug(error.stack || error);
@@ -202,9 +252,20 @@ if (!this.checkPermissions(msg, command)) {
 
 
     } else if (respondToUnknown) {
+        try {
+            await this.bot.sock.sendPresenceUpdate('paused', sender);
+        } catch (error) {
+            // Ignore presence errors
+        }
         await this.bot.sendMessage(sender, {
             text: `❓ Unknown command: ${command}\nType *${prefix}menu* for available commands.`
         });
+    } else {
+        try {
+            await this.bot.sock.sendPresenceUpdate('paused', sender);
+        } catch (error) {
+            // Ignore presence errors
+        }
     }
 }
 

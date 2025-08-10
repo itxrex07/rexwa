@@ -1,8 +1,12 @@
+
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, getAggregateVotesInPollMessage, isJidNewsletter, delay, proto } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs-extra');
 const path = require('path');
 const NodeCache = require('node-cache');
+
+// Import the custom store
+const { makeInMemoryStore } = require('./store'); // Adjust path as needed
 
 const config = require('../config');
 const logger = require('./logger');
@@ -10,7 +14,6 @@ const MessageHandler = require('./message-handler');
 const { connectDb } = require('../utils/db');
 const ModuleLoader = require('./module-loader');
 const { useMongoAuthState } = require('../utils/mongoAuthState');
-const { makeInMemoryStore } = require('./store'); // Import your store
 
 class HyperWaBot {
     constructor() {
@@ -24,30 +27,73 @@ class HyperWaBot {
         this.qrCodeSent = false;
         this.useMongoAuth = config.get('auth.useMongoAuth', false);
         
-        // Add flag to track if this is the first connection
-        this.isFirstConnection = true;
-        this.hasConnectedBefore = false;
+        // Initialize the enhanced store with advanced options
+        this.store = makeInMemoryStore({
+            logger: logger.child({ module: 'store' }),
+            filePath: config.get('store.filePath', './whatsapp-store.json'),
+            autoSaveInterval: config.get('store.autoSaveInterval', 30000) // Save every 30 seconds
+        });
+
+        // Load existing store data on startup
+        this.store.loadFromFile();
         
-        // Enhanced features from example
-        this.msgRetryCounterCache = new NodeCache();
+        // Enhanced features from example - SIMPLE VERSION
+        this.msgRetryCounterCache = new NodeCache({
+            stdTTL: 300,
+            maxKeys: 500
+        });
         this.onDemandMap = new Map();
         this.autoReply = config.get('features.autoReply', false);
         this.enableTypingIndicators = config.get('features.typingIndicators', true);
         this.autoReadMessages = config.get('features.autoReadMessages', true);
+        
+        // Simple memory cleanup
+        setInterval(() => {
+            if (this.onDemandMap.size > 100) {
+                this.onDemandMap.clear();
+            }
+        }, 300000);
 
-        // Initialize the store
-        this.store = makeInMemoryStore({
-            logger: logger.child({ module: 'store' }),
-            filePath: './store-data.json',
-            autoSaveInterval: 30000 // Save every 30 seconds
+        // Store event listeners for advanced features
+        this.setupStoreEventListeners();
+    }
+
+    setupStoreEventListeners() {
+        // Monitor store events for analytics and features
+        this.store.on('messages.upsert', (data) => {
+            logger.debug(`📝 Store: ${data.messages.length} messages cached`);
         });
 
-        // Load existing store data
-        this.store.loadFromFile();
+        this.store.on('contacts.upsert', (contacts) => {
+            logger.debug(`👥 Store: ${contacts.length} contacts cached`);
+        });
+
+        this.store.on('chats.upsert', (chats) => {
+            logger.debug(`💬 Store: ${chats.length} chats cached`);
+        });
+
+        // Log store statistics periodically
+        setInterval(() => {
+            const stats = this.getStoreStats();
+            logger.info(`📊 Store Stats - Chats: ${stats.chats}, Contacts: ${stats.contacts}, Messages: ${stats.messages}`);
+        }, 300000); // Every 5 minutes
+    }
+
+    getStoreStats() {
+        const chatCount = Object.keys(this.store.chats).length;
+        const contactCount = Object.keys(this.store.contacts).length;
+        const messageCount = Object.values(this.store.messages)
+            .reduce((total, chatMessages) => total + Object.keys(chatMessages).length, 0);
+        
+        return {
+            chats: chatCount,
+            contacts: contactCount,
+            messages: messageCount
+        };
     }
 
     async initialize() {
-        logger.info('🔧 Initializing HyperWa Userbot...');
+        logger.info('🔧 Initializing HyperWa Userbot with Enhanced Store...');
 
         try {
             this.db = await connectDb();
@@ -78,7 +124,7 @@ class HyperWaBot {
         await this.moduleLoader.loadModules();
         await this.startWhatsApp();
 
-        logger.info('✅ HyperWa Userbot initialized successfully!');
+        logger.info('✅ HyperWa Userbot with Enhanced Store initialized successfully!');
     }
 
     async startWhatsApp() {
@@ -125,8 +171,9 @@ class HyperWaBot {
                 browser: ['HyperWa', 'Chrome', '3.0'],
             });
 
-            // Bind store to socket events - THIS IS THE KEY INTEGRATION
+            // CRITICAL: Bind store to socket events for data persistence
             this.store.bind(this.sock.ev);
+            logger.info('🔗 Store bound to WhatsApp socket events');
 
             const connectionPromise = new Promise((resolve, reject) => {
                 const connectionTimeout = setTimeout(() => {
@@ -156,78 +203,228 @@ class HyperWaBot {
         }
     }
 
+    // Enhanced getMessage with store lookup
+    async getMessage(key) {
+        // Try to get message from store first
+        if (key?.remoteJid && key?.id) {
+            const storedMessage = this.store.loadMessage(key.remoteJid, key.id);
+            if (storedMessage) {
+                logger.debug(`📨 Retrieved message from store: ${key.id}`);
+                return storedMessage;
+            }
+        }
+        
+        // Fallback to empty message
+        return proto.Message.fromObject({ conversation: 'Message not found' });
+    }
+
+    // Store-powered helper methods
+    
+    /**
+     * Get chat information from store
+     */
+    getChatInfo(jid) {
+        return this.store.chats[jid] || null;
+    }
+
+    /**
+     * Get contact information from store
+     */
+    getContactInfo(jid) {
+        return this.store.contacts[jid] || null;
+    }
+
+    /**
+     * Get all messages for a chat
+     */
+    getChatMessages(jid, limit = 50) {
+        const messages = this.store.getMessages(jid);
+        return messages.slice(-limit).reverse(); // Get latest messages
+    }
+
+    /**
+     * Search messages by text content
+     */
+    searchMessages(query, jid = null) {
+        const results = [];
+        const chatsToSearch = jid ? [jid] : Object.keys(this.store.messages);
+        
+        for (const chatId of chatsToSearch) {
+            const messages = this.store.getMessages(chatId);
+            for (const msg of messages) {
+                const text = msg.message?.conversation || 
+                           msg.message?.extendedTextMessage?.text || '';
+                if (text.toLowerCase().includes(query.toLowerCase())) {
+                    results.push({
+                        chatId,
+                        message: msg,
+                        text
+                    });
+                }
+            }
+        }
+        
+        return results.slice(0, 100); // Limit results
+    }
+
+    /**
+     * Get group metadata with participant info
+     */
+    getGroupInfo(jid) {
+        const metadata = this.store.groupMetadata[jid];
+        const chat = this.store.chats[jid];
+        return {
+            metadata,
+            chat,
+            participants: metadata?.participants || []
+        };
+    }
+
+    /**
+     * Get user's message history statistics
+     */
+    getUserStats(jid) {
+        let messageCount = 0;
+        let lastMessageTime = null;
+        
+        for (const chatId of Object.keys(this.store.messages)) {
+            const messages = this.store.getMessages(chatId);
+            const userMessages = messages.filter(msg => 
+                msg.key?.participant === jid || msg.key?.remoteJid === jid
+            );
+            
+            messageCount += userMessages.length;
+            
+            if (userMessages.length > 0) {
+                const lastMsg = userMessages[userMessages.length - 1];
+                const msgTime = lastMsg.messageTimestamp * 1000;
+                if (!lastMessageTime || msgTime > lastMessageTime) {
+                    lastMessageTime = msgTime;
+                }
+            }
+        }
+        
+        return {
+            messageCount,
+            lastMessageTime: lastMessageTime ? new Date(lastMessageTime) : null,
+            isActive: lastMessageTime && (Date.now() - lastMessageTime) < (7 * 24 * 60 * 60 * 1000) // Active in last 7 days
+        };
+    }
+
+    /**
+     * Export chat history
+     */
+    async exportChatHistory(jid, format = 'json') {
+        const chat = this.getChatInfo(jid);
+        const messages = this.getChatMessages(jid, 1000); // Last 1000 messages
+        const contact = this.getContactInfo(jid);
+        
+        const exportData = {
+            chat,
+            contact,
+            messages,
+            exportedAt: new Date().toISOString(),
+            totalMessages: messages.length
+        };
+
+        if (format === 'txt') {
+            let textExport = `Chat Export for ${contact?.name || jid}\n`;
+            textExport += `Exported on: ${new Date().toISOString()}\n`;
+            textExport += `Total Messages: ${messages.length}\n\n`;
+            textExport += '=' .repeat(50) + '\n\n';
+            
+            for (const msg of messages) {
+                const timestamp = new Date(msg.messageTimestamp * 1000).toLocaleString();
+                const sender = msg.key.fromMe ? 'You' : (contact?.name || msg.key.participant || 'Unknown');
+                const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '[Media/Other]';
+                textExport += `[${timestamp}] ${sender}: ${text}\n`;
+            }
+            
+            return textExport;
+        }
+
+        return exportData;
+    }
+
     setupEnhancedEventHandlers(saveCreds) {
-        // Enhanced event processing like in the example
         this.sock.ev.process(async (events) => {
-            // Connection updates
-            if (events['connection.update']) {
-                await this.handleConnectionUpdate(events['connection.update']);
-            }
+            try {
+                if (events['connection.update']) {
+                    await this.handleConnectionUpdate(events['connection.update']);
+                }
 
-            // Credentials updates
-            if (events['creds.update']) {
-                await saveCreds();
-            }
+                if (events['creds.update']) {
+                    await saveCreds();
+                }
 
-            // Label association handling
-            if (events['labels.association']) {
-                logger.info('📋 Label association update:', events['labels.association']);
-            }
+                if (events['messages.upsert']) {
+                    await this.handleMessagesUpsert(events['messages.upsert']);
+                }
 
-            // Label edit handling
-            if (events['labels.edit']) {
-                logger.info('📝 Label edit update:', events['labels.edit']);
-            }
+                // Store automatically handles most events, but we can add custom logic
+                if (!process.env.DOCKER) {
+                    if (events['labels.association']) {
+                        logger.info('📋 Label association update:', events['labels.association']);
+                    }
 
-            // Call events
-            if (events.call) {
-                logger.info('📞 Call event received:', events.call);
-                await this.handleCallEvent(events.call);
-            }
+                    if (events['labels.edit']) {
+                        logger.info('📝 Label edit update:', events['labels.edit']);
+                    }
 
-            // History sync
-            if (events['messaging-history.set']) {
-                await this.handleHistorySync(events['messaging-history.set']);
-            }
+                    if (events.call) {
+                        logger.info('📞 Call event received:', events.call);
+                        // Store call information
+                        for (const call of events.call) {
+                            this.store.setCallOffer(call.from, call);
+                        }
+                    }
 
-            // Messages upsert (new/updated messages)
-            if (events['messages.upsert']) {
-                await this.handleMessagesUpsert(events['messages.upsert']);
-            }
+                    if (events['messaging-history.set']) {
+                        const { chats, contacts, messages, isLatest, progress, syncType } = events['messaging-history.set'];
+                        if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
+                            logger.info('📥 Received on-demand history sync, messages:', messages.length);
+                        }
+                        logger.info(`📊 History sync: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} msgs (latest: ${isLatest}, progress: ${progress}%)`);
+                    }
 
-            // Message updates (delivery, read, etc.)
-            if (events['messages.update']) {
-                await this.handleMessagesUpdate(events['messages.update']);
-            }
+                    if (events['messages.update']) {
+                        for (const { key, update } of events['messages.update']) {
+                            if (update.pollUpdates) {
+                                logger.info('📊 Poll update received');
+                            }
+                        }
+                    }
 
-            // Message receipts
-            if (events['message-receipt.update']) {
-                logger.debug('📨 Message receipt update:', events['message-receipt.update']);
-            }
+                    if (events['message-receipt.update']) {
+                        logger.debug('📨 Message receipt update');
+                    }
 
-            // Message reactions
-            if (events['messages.reaction']) {
-                await this.handleMessageReaction(events['messages.reaction']);
-            }
+                    if (events['messages.reaction']) {
+                        logger.info(`😀 Message reactions: ${events['messages.reaction'].length}`);
+                    }
 
-            // Presence updates
-            if (events['presence.update']) {
-                await this.handlePresenceUpdate(events['presence.update']);
-            }
+                    if (events['presence.update']) {
+                        logger.debug('👤 Presence updates');
+                    }
 
-            // Chat updates
-            if (events['chats.update']) {
-                logger.debug('💬 Chats updated:', events['chats.update'].length);
-            }
+                    if (events['chats.update']) {
+                        logger.debug('💬 Chats updated');
+                    }
 
-            // Contact updates
-            if (events['contacts.update']) {
-                await this.handleContactsUpdate(events['contacts.update']);
-            }
+                    if (events['contacts.update']) {
+                        for (const contact of events['contacts.update']) {
+                            if (typeof contact.imgUrl !== 'undefined') {
+                                logger.info(`👤 Contact ${contact.id} profile pic updated`);
+                            }
+                        }
+                    }
 
-            // Chat deletions
-            if (events['chats.delete']) {
-                logger.info('🗑️ Chats deleted:', events['chats.delete']);
+                    if (events['chats.delete']) {
+                        logger.info('🗑️ Chats deleted:', events['chats.delete']);
+                    }
+                }
+            } catch (error) {
+                logger.warn('⚠️ Event processing error:', error.message);
             }
         });
     }
@@ -254,8 +451,8 @@ class HyperWaBot {
 
             if (shouldReconnect && !this.isShuttingDown) {
                 logger.warn('🔄 Connection closed, reconnecting...');
-                // Mark as not first connection since we're reconnecting
-                this.isFirstConnection = false;
+                // Save store before reconnecting
+                this.store.saveToFile();
                 setTimeout(() => this.startWhatsApp(), 5000);
             } else {
                 logger.error('❌ Connection closed permanently. Please delete auth_info and restart.');
@@ -271,57 +468,31 @@ class HyperWaBot {
                     }
                 }
 
+                // Final store save
+                this.store.saveToFile();
                 process.exit(1);
             }
         } else if (connection === 'open') {
             await this.onConnectionOpen();
         }
-
-        logger.debug('🔗 Connection update:', update);
-    }
-
-    async handleCallEvent(callEvents) {
-        for (const call of callEvents) {
-            logger.info(`📞 ${call.isVideo ? 'Video' : 'Voice'} call ${call.status} from ${call.from}`);
-            
-            if (this.telegramBridge) {
-                try {
-                    await this.telegramBridge.logToTelegram(
-                        '📞 Call Event',
-                        `${call.isVideo ? 'Video' : 'Voice'} call ${call.status} from ${call.from}`
-                    );
-                } catch (err) {
-                    logger.warn('⚠️ Failed to log call to Telegram:', err.message);
-                }
-            }
-        }
-    }
-
-    async handleHistorySync(historyData) {
-        const { chats, contacts, messages, isLatest, progress, syncType } = historyData;
-        
-        if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
-            logger.info('📥 Received on-demand history sync, messages:', messages.length);
-        }
-        
-        logger.info(`📊 History sync: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} msgs (latest: ${isLatest}, progress: ${progress}%)`);
     }
 
     async handleMessagesUpsert(upsert) {
-        logger.debug('📨 Messages upsert:', JSON.stringify(upsert, null, 2));
-
-        if (upsert.requestId) {
-            logger.info(`🔄 Placeholder message received for request ID: ${upsert.requestId}`);
-        }
-
         if (upsert.type === 'notify') {
             for (const msg of upsert.messages) {
-                await this.processIncomingMessage(msg, upsert);
+                try {
+                    await this.processIncomingMessage(msg, upsert);
+                } catch (error) {
+                    logger.warn('⚠️ Message processing error:', error.message);
+                }
             }
         }
 
-        // Call original message handler
-        await this.messageHandler.handleMessages({ messages: upsert.messages, type: upsert.type });
+        try {
+            await this.messageHandler.handleMessages({ messages: upsert.messages, type: upsert.type });
+        } catch (error) {
+            logger.warn('⚠️ Original message handler error:', error.message);
+        }
     }
 
     async processIncomingMessage(msg, upsert) {
@@ -342,80 +513,27 @@ class HyperWaBot {
             return;
         }
 
-        // Auto-reply functionality
+        // Enhanced auto-reply with user stats
         if (!msg.key.fromMe && this.autoReply && !isJidNewsletter(msg.key?.remoteJid)) {
-            logger.info('🤖 Auto-replying to:', msg.key.remoteJid);
+            const userStats = this.getUserStats(msg.key.participant || msg.key.remoteJid);
+            const contactInfo = this.getContactInfo(msg.key.participant || msg.key.remoteJid);
+            
+            logger.info(`🤖 Auto-replying to: ${contactInfo?.name || msg.key.remoteJid} (${userStats.messageCount} messages)`);
             
             if (this.autoReadMessages) {
                 await this.sock.readMessages([msg.key]);
             }
             
-            const replyText = config.get('messages.autoReplyText', 'Hello there! This is an automated response.');
-            await this.sendMessageWithTyping({ text: replyText }, msg.key.remoteJid);
-        }
-    }
-
-    async handleMessagesUpdate(updates) {
-        logger.debug('📝 Messages update:', JSON.stringify(updates, null, 2));
-
-        for (const { key, update } of updates) {
-            if (update.pollUpdates) {
-                // Handle poll updates using store
-                const pollMessage = this.store.loadMessage(key.remoteJid, key.id);
-                if (pollMessage) {
-                    const aggregation = getAggregateVotesInPollMessage({
-                        message: pollMessage,
-                        pollUpdates: update.pollUpdates,
-                    });
-                    logger.info('📊 Poll update aggregation:', aggregation);
-                }
-            }
-        }
-    }
-
-    async handleMessageReaction(reactions) {
-        for (const reaction of reactions) {
-            logger.info(`😀 Reaction ${reaction.reaction.text || 'removed'} by ${reaction.key.participant || reaction.key.remoteJid}`);
+            let replyText = config.get('messages.autoReplyText', 'Hello there! This is an automated response.');
             
-            if (this.telegramBridge) {
-                try {
-                    await this.telegramBridge.logToTelegram(
-                        '😀 Message Reaction',
-                        `Reaction: ${reaction.reaction.text || 'removed'} by ${reaction.key.participant || reaction.key.remoteJid}`
-                    );
-                } catch (err) {
-                    logger.warn('⚠️ Failed to log reaction to Telegram:', err.message);
-                }
+            // Personalize reply based on user history
+            if (userStats.messageCount > 10) {
+                replyText += `\n\nGood to hear from you again! 👋`;
+            } else if (userStats.messageCount === 0) {
+                replyText += `\n\nWelcome! This seems to be your first message. 🎉`;
             }
-        }
-    }
-
-    async handlePresenceUpdate(presences) {
-        for (const presence of presences) {
-            logger.debug(`👤 Presence update for ${presence.id}: ${presence.presences?.[Object.keys(presence.presences)[0]]?.lastKnownPresence}`);
-        }
-    }
-
-    async handleContactsUpdate(contacts) {
-        for (const contact of contacts) {
-            if (typeof contact.imgUrl !== 'undefined') {
-                const newUrl = contact.imgUrl === null
-                    ? null
-                    : await this.sock.profilePictureUrl(contact.id).catch(() => null);
-                
-                logger.info(`👤 Contact ${contact.id} has a new profile pic: ${newUrl}`);
-                
-                if (this.telegramBridge) {
-                    try {
-                        await this.telegramBridge.logToTelegram(
-                            '👤 Profile Update',
-                            `Contact ${contact.id} updated their profile picture`
-                        );
-                    } catch (err) {
-                        logger.warn('⚠️ Failed to log profile update to Telegram:', err.message);
-                    }
-                }
-            }
+            
+            await this.sendMessageWithTyping({ text: replyText }, msg.key.remoteJid);
         }
     }
 
@@ -440,67 +558,29 @@ class HyperWaBot {
         }
     }
 
-    async getMessage(key) {
-        // Enhanced message retrieval using store
-        if (this.store) {
-            const message = this.store.loadMessage(key.remoteJid, key.id);
-            if (message) {
-                return message.message || proto.Message.fromObject({ conversation: 'Message from store' });
+    async onConnectionOpen() {
+        logger.info(`✅ Connected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`);
+
+        if (!config.get('bot.owner') && this.sock.user) {
+            config.set('bot.owner', this.sock.user.id);
+            logger.info(`👑 Owner set to: ${this.sock.user.id}`);
+        }
+
+        if (this.telegramBridge) {
+            try {
+                await this.telegramBridge.setupWhatsAppHandlers();
+            } catch (err) {
+                logger.warn('⚠️ Failed to setup Telegram WhatsApp handlers:', err.message);
             }
         }
-        
-        // Fallback
-        return proto.Message.fromObject({ conversation: 'Message not found' });
-    }
 
-    async onConnectionOpen() {
-        const isReconnection = this.hasConnectedBefore;
-        
-        if (isReconnection) {
-            logger.info(`🔄 Reconnected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`);
-            
-            // Log reconnection to Telegram if available
-            if (this.telegramBridge) {
-                try {
-                    await this.telegramBridge.logToTelegram(
-                        '🔄 WhatsApp Reconnected',
-                        `Bot reconnected to WhatsApp successfully`
-                    );
-                } catch (err) {
-                    logger.warn('⚠️ Telegram reconnection log failed:', err.message);
-                }
-            }
-        } else {
-            logger.info(`✅ Connected to WhatsApp! User: ${this.sock.user?.id || 'Unknown'}`);
-            
-            // Mark that we've connected at least once
-            this.hasConnectedBefore = true;
+        await this.sendStartupMessage();
 
-            if (!config.get('bot.owner') && this.sock.user) {
-                config.set('bot.owner', this.sock.user.id);
-                logger.info(`👑 Owner set to: ${this.sock.user.id}`);
-            }
-
-            if (this.telegramBridge) {
-                try {
-                    await this.telegramBridge.setupWhatsAppHandlers();
-                } catch (err) {
-                    logger.warn('⚠️ Failed to setup Telegram WhatsApp handlers:', err.message);
-                }
-            }
-
-            // Only send startup message on first connection
-            if (this.isFirstConnection) {
-                await this.sendStartupMessage();
-                this.isFirstConnection = false;
-            }
-
-            if (this.telegramBridge) {
-                try {
-                    await this.telegramBridge.syncWhatsAppConnection();
-                } catch (err) {
-                    logger.warn('⚠️ Telegram sync error:', err.message);
-                }
+        if (this.telegramBridge) {
+            try {
+                await this.telegramBridge.syncWhatsAppConnection();
+            } catch (err) {
+                logger.warn('⚠️ Telegram sync error:', err.message);
             }
         }
     }
@@ -510,11 +590,14 @@ class HyperWaBot {
         if (!owner) return;
 
         const authMethod = this.useMongoAuth ? 'MongoDB' : 'File-based';
+        const storeStats = this.getStoreStats();
+        
         const startupMessage = `🚀 *${config.get('bot.name')} v${config.get('bot.version')}* is now online!\n\n` +
                               `🔥 *HyperWa Features Active:*\n` +
                               `• 📱 Modular Architecture\n` +
+                              `• 🗄️ Enhanced Data Store: ✅\n` +
+                              `• 📊 Store Stats: ${storeStats.chats} chats, ${storeStats.contacts} contacts, ${storeStats.messages} messages\n` +
                               `• 🔐 Auth Method: ${authMethod}\n` +
-                              `• 💾 In-Memory Store: ✅\n` +
                               `• 🤖 Telegram Bridge: ${config.get('telegram.enabled') ? '✅' : '❌'}\n` +
                               `• 🔧 Custom Modules: ${config.get('features.customModules') ? '✅' : '❌'}\n` +
                               `• ⌨️ Typing Indicators: ${this.enableTypingIndicators ? '✅' : '❌'}\n` +
@@ -554,81 +637,6 @@ class HyperWaBot {
         return await this.sock.sendMessage(jid, content);
     }
 
-    // Enhanced store utility methods
-    getStoredContacts() {
-        return this.store?.contacts || {};
-    }
-
-    getStoredChats() {
-        return this.store?.chats || {};
-    }
-
-    getChatMessages(jid) {
-        return this.store?.getMessages(jid) || [];
-    }
-
-    getContactInfo(jid) {
-        return this.store?.contacts[jid] || null;
-    }
-
-    getChatInfo(jid) {
-        return this.store?.chats[jid] || null;
-    }
-
-    getGroupMetadata(groupId) {
-        return this.store?.groupMetadata[groupId] || null;
-    }
-
-    // Store management methods
-    clearStore() {
-        if (this.store) {
-            this.store.clear();
-            logger.info('🧹 Store cleared');
-        }
-    }
-
-    saveStoreToFile() {
-        if (this.store) {
-            this.store.saveToFile();
-            logger.info('💾 Store saved to file');
-        }
-    }
-
-    // New enhanced methods
-    async requestPlaceholderResend(messageKey) {
-        if (!this.sock) return null;
-        return await this.sock.requestPlaceholderResend(messageKey);
-    }
-
-    async fetchMessageHistory(count, fromKey, timestamp) {
-        if (!this.sock) return null;
-        return await this.sock.fetchMessageHistory(count, fromKey, timestamp);
-    }
-
-    async readMessages(keys) {
-        if (!this.sock) return;
-        return await this.sock.readMessages(keys);
-    }
-
-    async updatePresence(presence, jid) {
-        if (!this.sock) return;
-        return await this.sock.sendPresenceUpdate(presence, jid);
-    }
-
-    async subscribePresence(jid) {
-        if (!this.sock) return;
-        return await this.sock.presenceSubscribe(jid);
-    }
-
-    async getProfilePicture(jid) {
-        if (!this.sock) return null;
-        try {
-            return await this.sock.profilePictureUrl(jid);
-        } catch {
-            return null;
-        }
-    }
-
     // Configuration methods for new features
     setAutoReply(enabled) {
         this.autoReply = enabled;
@@ -652,10 +660,8 @@ class HyperWaBot {
         logger.info('🛑 Shutting down HyperWa Userbot...');
         this.isShuttingDown = true;
 
-        // Clean up store
-        if (this.store) {
-            this.store.cleanup();
-        }
+        // Cleanup store
+        this.store.cleanup();
 
         if (this.telegramBridge) {
             try {

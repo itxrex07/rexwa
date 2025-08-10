@@ -20,7 +20,7 @@ class TimeModule {
     this.geoApiUsername = 'tahseen'; // Get from geonames.org
 
     // Weather is optional. Leave as is to disable.
-    this.weatherApiKey = 'your_openweathermap_api_key'; // Get from openweathermap.org
+    this.weatherApiKey = '3ec738bcb912c44a805858054ead1efd'; // Get from openweathermap.org
     // ---------------------------------------------
 
     this.defaultLocation = 'Los Angeles';
@@ -89,7 +89,7 @@ class TimeModule {
 
       // Assemble the final response
       return (
-        `*Currently in ${timezoneData.countryName}/${location}:*\n\n` +
+        `*Currently in ${location},${timezoneData.countryName}:*\n\n` +
         `*Time:* ${time12} | ${time24}\n` +
         `*Date:* ${date}\n` +
         `*Timezone:* ${timezoneId}` +

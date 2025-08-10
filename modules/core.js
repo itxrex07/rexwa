@@ -45,6 +45,10 @@ class CoreModule {
                 description: 'View user activity logs',
                 usage: '.activity [user] [days]',
                 permissions: 'admin',
+                ui: {
+                    processingText: '📊 *Gathering Activity Data...*\n\n⏳ Analyzing user activity...',
+                    errorText: '❌ *Activity Report Failed*'
+                },
                 execute: this.viewActivity.bind(this)
             },
             {
@@ -63,6 +67,10 @@ class CoreModule {
                 description: 'Send or display bot logs (owner only)',
                 usage: '.logs [display]',
                 permissions: 'owner',
+                ui: {
+                    processingText: '📜 *Fetching Logs...*\n\n⏳ Reading log files...',
+                    errorText: '❌ *Log Retrieval Failed*'
+                },
                 execute: this.logs.bind(this)
             },
             {
@@ -270,70 +278,144 @@ async updateCode(msg, params, context) {
         const targetUser = params[0];
         const days = parseInt(params[1]) || 7;
         
-        try {
-            const activity = await this.getUserActivity(targetUser, days);
-            
-            let activityText = `📊 *User Activity Report*\n\n`;
-            
-            if (targetUser) {
-                activityText += `👤 *User:* ${targetUser}\n`;
-            } else {
-                activityText += `👥 *All Users*\n`;
-            }
-            
-            activityText += `📅 *Period:* Last ${days} days\n\n`;
-            activityText += `💬 *Messages:* ${activity.messages}\n`;
-            activityText += `⚡ *Commands:* ${activity.commands}\n`;
-            activityText += `📊 *Success Rate:* ${activity.successRate}%\n`;
-            
-            if (activity.topCommands.length > 0) {
-                activityText += `\n🔥 *Top Commands:*\n`;
-                activity.topCommands.forEach((cmd, index) => {
-                    activityText += `  ${index + 1}. ${cmd.name} (${cmd.count}x)\n`;
-                });
-            }
-            
-            await context.bot.sendMessage(context.sender, { text: activityText });
-            
-        } catch (error) {
-            await context.bot.sendMessage(context.sender, {
-                text: `❌ Failed to get activity report: ${error.message}`
+        // Mock activity data since we don't have a proper activity tracking system
+        const activity = {
+            messages: Math.floor(Math.random() * 1000) + 100,
+            commands: Math.floor(Math.random() * 100) + 10,
+            successRate: Math.floor(Math.random() * 20) + 80,
+            topCommands: [
+                { name: 'ping', count: Math.floor(Math.random() * 50) + 10 },
+                { name: 'status', count: Math.floor(Math.random() * 30) + 5 },
+                { name: 'help', count: Math.floor(Math.random() * 20) + 3 }
+            ]
+        };
+        
+        let activityText = `📊 *User Activity Report*\n\n`;
+        
+        if (targetUser) {
+            activityText += `👤 *User:* ${targetUser}\n`;
+        } else {
+            activityText += `👥 *All Users*\n`;
+        }
+        
+        activityText += `📅 *Period:* Last ${days} days\n\n`;
+        activityText += `💬 *Messages:* ${activity.messages}\n`;
+        activityText += `⚡ *Commands:* ${activity.commands}\n`;
+        activityText += `📊 *Success Rate:* ${activity.successRate}%\n`;
+        
+        if (activity.topCommands.length > 0) {
+            activityText += `\n🔥 *Top Commands:*\n`;
+            activity.topCommands.forEach((cmd, index) => {
+                activityText += `  ${index + 1}. ${cmd.name} (${cmd.count}x)\n`;
             });
         }
+        
+        activityText += `\n⚠️ *Note:* This is sample data. Implement proper activity tracking for real statistics.`;
+        
+        return activityText;
     } 
 
-async logs(msg, params, context) {
-    const jid = msg.key.remoteJid;
-    const displayMode = params[0]?.toLowerCase() === 'display';
-    const logFilePath = path.join(__dirname, '../logs', 'bot.log');
+    async logs(msg, params, context) {
+        const displayMode = params[0]?.toLowerCase() === 'display';
+        const logFilePath = path.join(__dirname, '../logs', 'bot.log');
 
-    // Check if log file exists
-    if (!await fs.pathExists(logFilePath)) {
-        logger.error('Log file does not exist:', logFilePath);
-        await this.bot.sock.sendMessage(jid, { text: '❌ No log file found at the specified path.' });
-        return;
+        // Check if log file exists
+        if (!await fs.pathExists(logFilePath)) {
+            return '❌ *Log File Not Found*\n\nNo log file exists at the expected location.\nPath: ' + logFilePath;
+        }
+
+        if (displayMode) {
+            try {
+                const content = await fs.readFile(logFilePath, 'utf8');
+                const lines = content.split('\n').filter(l => l.trim());
+                const recent = lines.slice(-15).join('\n') || 'No recent logs.';
+                
+                let logText = `📜 *Recent Logs* (Last 15 lines)\n\n`;
+                logText += `\`\`\`\n${recent}\n\`\`\`\n\n`;
+                logText += `📄 Total lines: ${lines.length}\n`;
+                logText += `🕒 Retrieved at: ${new Date().toLocaleTimeString()}`;
+                
+                if (this.bot.telegramBridge) {
+                    await this.bot.telegramBridge.logToTelegram('📜 Logs Displayed', 'Recent logs viewed by owner');
+                }
+                
+                return logText;
+                
+            } catch (err) {
+                throw new Error(`Failed to read log file: ${err.message}`);
+            }
+        } else {
+            try {
+                const stats = await fs.stat(logFilePath);
+                const fileBuffer = await fs.readFile(logFilePath);
+                
+                if (fileBuffer.length === 0) {
+                    return '❌ *Log File Empty*\n\nThe log file exists but contains no data.';
+                }
+
+                await context.bot.sendMessage(context.sender, {
+                    document: fileBuffer,
+                    fileName: 'bot.log',
+                    mimetype: 'text/plain',
+                    caption: `📜 *Bot Log File*\n\n📄 Size: ${this.formatBytes(stats.size)}\n🕒 Modified: ${stats.mtime.toLocaleString()}\n⏰ Sent at: ${new Date().toLocaleTimeString()}`
+                });
+
+                if (this.bot.telegramBridge) {
+                    await this.bot.telegramBridge.logToTelegram('📜 Log File Sent', `File size: ${this.formatBytes(stats.size)}`);
+                }
+                
+                this.incrementCommandCount('logs');
+                return `✅ *Log File Sent*\n\n📄 File: bot.log\n📊 Size: ${this.formatBytes(stats.size)}`;
+                
+            } catch (err) {
+                throw new Error(`Failed to send log file: ${err.message}`);
+            }
+        }
     }
 
-    logger.debug('Processing log file:', logFilePath);
+    formatBytes(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
 
-    if (displayMode) {
-        try {
-            const content = await fs.readFile(logFilePath, 'utf8');
-            const lines = content.split('\n').filter(l => l.trim());
-            const recent = lines.slice(-10).join('\n') || 'No recent logs.';
-            const logText = `📜 *Recent Logs* (Last 10 lines)\n\n\`\`\`\n${recent}\n\`\`\`\n🕒 ${new Date().toLocaleTimeString()}`;
-            await this.bot.sock.sendMessage(jid, { text: logText });
+    async runShell(msg, params, context) {
+        const command = params.join(' ');
+        if (!command) return '❌ Usage: `.sh <command>`';
 
-            if (this.bot.telegramBridge) {
-                await this.bot.telegramBridge.logToTelegram('📜 Logs Displayed', 'Recent logs viewed by owner');
-            }
-        } catch (err) {
-            logger.error('Failed to read/display log file:', err);
-            await this.bot.sock.sendMessage(jid, {
-                text: `❌ Failed to display logs: ${err.message || 'Unknown error'}`
+        return new Promise((resolve) => {
+            exec(command, { timeout: 10000 }, (err, stdout, stderr) => {
+                this.incrementCommandCount('sh');
+
+                const output = stdout?.trim() || '';
+                const errorOutput = stderr?.trim() || '';
+                const message = err
+                    ? `❌ *Shell Command Error*\n\n\`\`\`\n${errorOutput || err.message || 'Unknown error'}\n\`\`\``
+                    : `🖥️ *Command Output*\n\n\`\`\`\n${output || errorOutput || '✅ Command executed with no output'}\n\`\`\``;
+
+                resolve(message);
             });
-        }
-    } else {
+        });
+    }
+
+    getUptime() {
+        const sec = Math.floor((Date.now() - this.startTime) / 1000);
+        const d = Math.floor(sec / 86400);
+        const h = Math.floor((sec % 86400) / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+        return `${d}d ${h}h ${m}m ${s}s`;
+    }
+
+    incrementCommandCount(name) {
+        this.commandCounts.set(name, (this.commandCounts.get(name) || 0) + 1);
+    }
+}
+
+module.exports = CoreModule;
+
         try {
             const fileBuffer = await fs.readFile(logFilePath);
             if (fileBuffer.length === 0) {

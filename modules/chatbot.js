@@ -1,6 +1,7 @@
 const { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory } = require('@google/generative-ai');
 const config = require('../config');
 const logger = require('../Core/logger');
+const Database = require('../utils/db');
 
 class ChatBotModule {
     constructor(bot) {
@@ -18,6 +19,10 @@ class ChatBotModule {
         this.genAI = null;
         this.model = null;
 
+        // Database configuration
+        this.db = null;
+        this.collection = null;
+
         // Chatbot state
         this.globalChatEnabled = false;
         this.userChatSettings = new Map(); // userId -> enabled/disabled
@@ -25,8 +30,8 @@ class ChatBotModule {
         this.conversations = new Map(); // userId/groupId -> conversation history
         this.maxConversationLength = 20;
 
-        // Bot personality and role
-        this.botPersonality = `You are HyperWa, an advanced AI assistant integrated into a WhatsApp bot. You are:
+        // Bot default role (renamed from personality)
+        this.defaultRole = `You are HyperWa, an advanced AI assistant integrated into a WhatsApp bot. You are:
 - Helpful, friendly, and knowledgeable
 - Capable of understanding context and maintaining conversations
 - Able to assist with various tasks and questions
@@ -94,14 +99,47 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
             },
             {
                 name: 'setpersonality',
-                description: 'Set bot personality (owner only)',
+                description: 'Set bot personality/role (owner only)',
                 usage: '.setpersonality <personality_description>',
                 permissions: 'owner',
                 ui: {
-                    processingText: '⏳ *Setting Personality...*\n\n🤖 Updating AI personality...',
+                    processingText: '⏳ *Setting Global Personality...*\n\n🤖 Updating AI personality...',
                     errorText: '❌ *Personality Update Failed*'
                 },
                 execute: this.setPersonality.bind(this)
+            },
+            {
+                name: 'setrole',
+                description: 'Set bot role for yourself or group',
+                usage: '.setrole <role_description>',
+                permissions: 'public',
+                ui: {
+                    processingText: '⏳ *Setting Personal Role...*\n\n🎭 Updating your custom role...',
+                    errorText: '❌ *Role Update Failed*'
+                },
+                execute: this.setPersonalRole.bind(this)
+            },
+            {
+                name: 'resetrole',
+                description: 'Reset to default role',
+                usage: '.resetrole',
+                permissions: 'public',
+                ui: {
+                    processingText: '⏳ *Resetting Role...*\n\n🔄 Restoring default role...',
+                    errorText: '❌ *Role Reset Failed*'
+                },
+                execute: this.resetPersonalRole.bind(this)
+            },
+            {
+                name: 'myrole',
+                description: 'Show your current role',
+                usage: '.myrole',
+                permissions: 'public',
+                ui: {
+                    processingText: '⏳ *Checking Role...*\n\n👤 Getting your role info...',
+                    errorText: '❌ *Role Check Failed*'
+                },
+                execute: this.showPersonalRole.bind(this)
             },
             {
                 name: 'chathelp',
@@ -124,6 +162,15 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
 
     async init() {
         try {
+            // Initialize database
+            this.db = this.bot.db;
+            this.collection = this.db.collection('chatbot_data');
+            
+            // Create indexes for better performance
+            await this.collection.createIndex({ userId: 1 });
+            await this.collection.createIndex({ groupId: 1 });
+            await this.collection.createIndex({ conversationId: 1 });
+            
             if (!this.apiKey || this.apiKey === "YOUR_GEMINI_API_KEY") {
                 logger.error('❌ Gemini API key is missing for ChatBot module');
                 throw new Error('Gemini API key not configured');
@@ -140,7 +187,7 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 ]
             });
 
-            logger.info('✅ ChatBot module initialized with Gemini 2.0 Flash');
+            logger.info('✅ ChatBot module initialized with Gemini 2.0 Flash and Database');
         } catch (error) {
             logger.error('❌ Failed to initialize ChatBot module:', error);
             throw error;
@@ -263,11 +310,9 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
     async clearConversation(msg, params, context) {
         try {
             const conversationId = this.getConversationId(context);
-            const hadConversation = this.conversations.has(conversationId);
+            const result = await this.collection.deleteOne({ conversationId });
             
-            this.conversations.delete(conversationId);
-
-            if (hadConversation) {
+            if (result.deletedCount > 0) {
                 return `🧹 *Conversation Cleared Successfully*\n\nYour chat history has been reset. Starting fresh! 🌟`;
             } else {
                 return `🧹 *No Conversation Found*\n\nThere was no existing conversation history to clear. Ready for a fresh start! 🌟`;
@@ -281,20 +326,83 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
     async setPersonality(msg, params, context) {
         try {
             if (params.length === 0) {
-                return `🤖 *Current Personality:*\n\n${this.botPersonality}\n\n💡 **Usage:** \`.setpersonality <new_personality_description>\``;
+                return `🤖 *Current Global Role:*\n\n${this.defaultRole}\n\n💡 **Usage:** \`.setpersonality <new_role_description>\`\n\n⚠️ This changes the global default role for all users.`;
             }
 
-            const newPersonality = params.join(' ').trim();
-            if (newPersonality.length < 10) {
-                return '❌ *Personality Too Short*\n\nPlease provide a more detailed personality description (at least 10 characters).';
+            const newRole = params.join(' ').trim();
+            if (newRole.length < 10) {
+                return '❌ *Role Too Short*\n\nPlease provide a more detailed role description (at least 10 characters).';
             }
 
-            this.botPersonality = newPersonality;
+            this.defaultRole = newRole;
             
-            return `🤖 *Personality Updated Successfully!*\n\n**New Personality:** ${newPersonality.substring(0, 100)}${newPersonality.length > 100 ? '...' : ''}\n\nTry chatting with me to see the difference! ✨`;
+            return `🤖 *Global Role Updated Successfully!*\n\n**New Default Role:** ${newRole.substring(0, 100)}${newRole.length > 100 ? '...' : ''}\n\nThis affects all users who haven't set a personal role. ✨`;
         } catch (error) {
             logger.error('Error in setPersonality:', error);
-            return '❌ Failed to update personality. Please try again.';
+            return '❌ Failed to update global role. Please try again.';
+        }
+    }
+
+    async setPersonalRole(msg, params, context) {
+        try {
+            if (params.length === 0) {
+                return `🎭 *Set Personal Role*\n\n💡 **Usage:** \`.setrole <role_description>\`\n\n**Examples:**\n• \`.setrole You are a coding assistant\`\n• \`.setrole You are a creative writing helper\`\n• \`.setrole You are a math tutor\`\n\nThis sets a custom role just for you!`;
+            }
+
+            const newRole = params.join(' ').trim();
+            if (newRole.length < 10) {
+                return '❌ *Role Too Short*\n\nPlease provide a more detailed role description (at least 10 characters).';
+            }
+
+            const userId = context.participant.split('@')[0];
+            const isGroup = context.sender.endsWith('@g.us');
+            const targetId = isGroup ? `group_${context.sender}` : `user_${userId}`;
+
+            // Save to database
+            await this.savePersonalRole(targetId, newRole);
+            
+            const scopeText = isGroup ? 'this group' : 'you';
+            return `🎭 *Personal Role Set Successfully!*\n\n**Your Custom Role:** ${newRole.substring(0, 150)}${newRole.length > 150 ? '...' : ''}\n\nI'll use this role when chatting with ${scopeText}! ✨`;
+        } catch (error) {
+            logger.error('Error in setPersonalRole:', error);
+            return '❌ Failed to set personal role. Please try again.';
+        }
+    }
+
+    async resetPersonalRole(msg, params, context) {
+        try {
+            const userId = context.participant.split('@')[0];
+            const isGroup = context.sender.endsWith('@g.us');
+            const targetId = isGroup ? `group_${context.sender}` : `user_${userId}`;
+
+            // Remove from database
+            await this.removePersonalRole(targetId);
+            
+            const scopeText = isGroup ? 'this group' : 'you';
+            return `🔄 *Role Reset Successfully!*\n\nI'll now use the default role when chatting with ${scopeText}.\n\n**Default Role:** ${this.defaultRole.substring(0, 100)}${this.defaultRole.length > 100 ? '...' : ''}`;
+        } catch (error) {
+            logger.error('Error in resetPersonalRole:', error);
+            return '❌ Failed to reset role. Please try again.';
+        }
+    }
+
+    async showPersonalRole(msg, params, context) {
+        try {
+            const userId = context.participant.split('@')[0];
+            const isGroup = context.sender.endsWith('@g.us');
+            const targetId = isGroup ? `group_${context.sender}` : `user_${userId}`;
+
+            const personalRole = await this.getPersonalRole(targetId);
+            const scopeText = isGroup ? 'this group' : 'you';
+            
+            if (personalRole) {
+                return `🎭 *Your Current Role*\n\n**Custom Role for ${scopeText}:**\n${personalRole}\n\n💡 Use \`.resetrole\` to return to default.`;
+            } else {
+                return `🤖 *Current Role for ${scopeText}*\n\n**Using Default Role:**\n${this.defaultRole}\n\n💡 Use \`.setrole <description>\` to set a custom role.`;
+            }
+        } catch (error) {
+            logger.error('Error in showPersonalRole:', error);
+            return '❌ Failed to get role information. Please try again.';
         }
     }
 
@@ -315,7 +423,10 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                    `• \`.chathelp\` - Show this help\n` +
                    `• \`.chatall on/off\` - Global toggle (owner only)\n` +
                    `• \`.groupchat on/off\` - Group toggle (admin)\n` +
-                   `• \`.setpersonality\` - Change AI personality (owner)\n\n` +
+                   `• \`.setrole <description>\` - Set custom role for you/group\n` +
+                   `• \`.myrole\` - Show your current role\n` +
+                   `• \`.resetrole\` - Reset to default role\n` +
+                   `• \`.setpersonality\` - Change global role (owner)\n\n` +
                    `💡 **Tips:**\n` +
                    `• Just type normally to chat with me\n` +
                    `• I remember our conversation context\n` +
@@ -392,10 +503,17 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
     async generateChatResponse(text, context) {
         try {
             const conversationId = this.getConversationId(context);
-            const history = this.getConversationHistory(conversationId);
+            const history = await this.getConversationHistory(conversationId);
+            
+            // Get the appropriate role (personal or default)
+            const userId = context.participant.split('@')[0];
+            const isGroup = context.isGroup;
+            const targetId = isGroup ? `group_${context.sender}` : `user_${userId}`;
+            const personalRole = await this.getPersonalRole(targetId);
+            const currentRole = personalRole || this.defaultRole;
             
             // Build context-aware prompt
-            let prompt = this.botPersonality + '\n\n';
+            let prompt = currentRole + '\n\n';
             
             // Add conversation history
             if (history.length > 0) {
@@ -413,8 +531,8 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
             const response = await result.response;
             const aiResponse = response.text();
 
-            // Update conversation history
-            this.addToConversation(conversationId, text, aiResponse);
+            // Update conversation history in database
+            await this.addToConversation(conversationId, text, aiResponse);
 
             return aiResponse;
 
@@ -432,29 +550,89 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
         }
     }
 
-    getConversationHistory(conversationId) {
-        if (!this.conversations.has(conversationId)) {
-            this.conversations.set(conversationId, []);
-        }
-        return this.conversations.get(conversationId);
-    }
-
-    addToConversation(conversationId, userMessage, aiResponse) {
-        const history = this.getConversationHistory(conversationId);
-        
-        history.push({
-            user: userMessage,
-            assistant: aiResponse,
-            timestamp: Date.now()
-        });
-
-        // Keep only recent messages
-        if (history.length > this.maxConversationLength) {
-            history.shift();
+    async getConversationHistory(conversationId) {
+        try {
+            const data = await this.collection.findOne({ conversationId });
+            return data ? data.history : [];
+        } catch (error) {
+            logger.error('Error getting conversation history:', error);
+            return [];
         }
     }
 
+    async addToConversation(conversationId, userMessage, aiResponse) {
+        try {
+            const data = await this.collection.findOne({ conversationId });
+            let history = data ? data.history : [];
+            
+            history.push({
+                user: userMessage,
+                assistant: aiResponse,
+                timestamp: Date.now()
+            });
 
+            // Keep only recent messages
+            if (history.length > this.maxConversationLength) {
+                history = history.slice(-this.maxConversationLength);
+            }
+
+            await this.collection.updateOne(
+                { conversationId },
+                { 
+                    $set: { 
+                        history, 
+                        updatedAt: new Date() 
+                    } 
+                },
+                { upsert: true }
+            );
+        } catch (error) {
+            logger.error('Error adding to conversation:', error);
+        }
+    }
+
+    // Database helper methods for personal roles
+    async savePersonalRole(targetId, role) {
+        try {
+            await this.collection.updateOne(
+                { targetId, type: 'personalRole' },
+                { 
+                    $set: { 
+                        role, 
+                        updatedAt: new Date() 
+                    } 
+                },
+                { upsert: true }
+            );
+        } catch (error) {
+            logger.error('Error saving personal role:', error);
+            throw error;
+        }
+    }
+
+    async getPersonalRole(targetId) {
+        try {
+            const data = await this.collection.findOne({ targetId, type: 'personalRole' });
+            return data ? data.role : null;
+        } catch (error) {
+            logger.error('Error getting personal role:', error);
+            return null;
+        }
+    }
+
+    async removePersonalRole(targetId) {
+        try {
+            await this.collection.deleteOne({ targetId, type: 'personalRole' });
+        } catch (error) {
+            logger.error('Error removing personal role:', error);
+            throw error;
+        }
+    }
+
+    // Optional: Cleanup on unload
+    async destroy() {
+        logger.info('ChatBot module destroyed');
+    }
 }
 
 module.exports = ChatBotModule;

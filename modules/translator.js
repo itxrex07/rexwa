@@ -38,17 +38,6 @@ class TranslateModule {
                 execute: this.translateCommand.bind(this)
             },
             {
-                name: 'detect',
-                description: 'Detect language of text',
-                usage: '.detect <text> OR reply with .detect',
-                permissions: 'public',
-                ui: {
-                    processingText: '🔍 *Detecting Language...*\n\n⏳ Analyzing text...',
-                    errorText: '❌ *Language Detection Failed*'
-                },
-                execute: this.detectLanguage.bind(this)
-            },
-            {
                 name: 'langs',
                 description: 'Show supported languages',
                 usage: '.langs',
@@ -108,39 +97,6 @@ class TranslateModule {
 
         } catch (error) {
             throw new Error(`Translation failed: ${error.message}`);
-        }
-    }
-
-    async detectLanguage(msg, params, context) {
-        let textToDetect;
-        
-        const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-        if (quotedMsg) {
-            textToDetect = quotedMsg.conversation || 
-                          quotedMsg.extendedTextMessage?.text || 
-                          quotedMsg.imageMessage?.caption ||
-                          quotedMsg.videoMessage?.caption;
-        } else if (params.length > 0) {
-            textToDetect = params.join(' ');
-        } else {
-            return '❌ *Language Detection*\n\nPlease provide text or reply to a message.\n\n💡 Usage: `.detect <text>` or reply with `.detect`';
-        }
-
-        if (!textToDetect) {
-            return '❌ *No Text Found*\n\nCouldn\'t find any text to analyze.';
-        }
-
-        try {
-            const detected = await this.detectTextLanguage(textToDetect);
-            
-            return `🔍 *Language Detection Result*\n\n` +
-                   `📝 **Text:** ${textToDetect.substring(0, 100)}${textToDetect.length > 100 ? '...' : ''}\n` +
-                   `🌐 **Detected Language:** ${detected.language}\n` +
-                   `📊 **Confidence:** ${detected.confidence}%\n\n` +
-                   `⏰ ${new Date().toLocaleTimeString()}`;
-
-        } catch (error) {
-            throw new Error(`Language detection failed: ${error.message}`);
         }
     }
 

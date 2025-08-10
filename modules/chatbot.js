@@ -46,6 +46,7 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 name: 'chat',
                 description: 'Toggle chatbot for user/group or globally',
                 usage: '.chat on/off [user_number] OR .chat on/off (in group)',
+                aliases: ['c'],
                 permissions: 'admin',
                 ui: {
                     processingText: '⏳ *Processing Chat Toggle...*\n\n🔄 Updating settings...',
@@ -68,6 +69,7 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 name: 'groupchat',
                 description: 'Toggle chatbot for current group',
                 usage: '.groupchat on/off',
+                aliases: ['gc'],
                 permissions: 'admin',
                 ui: {
                     processingText: '⏳ *Processing Group Chat...*\n\n👥 Updating group settings...',
@@ -101,6 +103,7 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 name: 'setpersonality',
                 description: 'Set bot personality/role (owner only)',
                 usage: '.setpersonality <personality_description>',
+                aliases: ['setp'],
                 permissions: 'owner',
                 ui: {
                     processingText: '⏳ *Setting Global Personality...*\n\n🤖 Updating AI personality...',
@@ -112,6 +115,7 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 name: 'setrole',
                 description: 'Set bot role for yourself or group',
                 usage: '.setrole <role_description>',
+                aliases: ['role'],
                 permissions: 'public',
                 ui: {
                     processingText: '⏳ *Setting Personal Role...*\n\n🎭 Updating your custom role...',
@@ -123,6 +127,7 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 name: 'resetrole',
                 description: 'Reset to default role',
                 usage: '.resetrole',
+                aliases: ['rr'],
                 permissions: 'public',
                 ui: {
                     processingText: '⏳ *Resetting Role...*\n\n🔄 Restoring default role...',

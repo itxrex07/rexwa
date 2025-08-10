@@ -14,7 +14,7 @@ class ChatBotModule {
         };
 
         // Gemini API configuration
-        this.apiKey = "AIzaSyC1-5hrYIdfNsg2B7bcb5Qs3ib1MIWlbOE";
+        this.apiKey = "AIzaSyC1-5hrYIdfNsg2B7bcb5Qs3ib1MIWlbOE"; // Consider moving to config
         this.genAI = null;
         this.model = null;
 
@@ -42,6 +42,10 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 description: 'Toggle chatbot for user/group or globally',
                 usage: '.chat on/off [user_number] OR .chat on/off (in group)',
                 permissions: 'admin',
+                ui: {
+                    processingText: '⏳ *Processing Chat Toggle...*\n\n🔄 Updating settings...',
+                    errorText: '❌ *Chat Toggle Failed*'
+                },
                 execute: this.toggleChat.bind(this)
             },
             {
@@ -49,6 +53,10 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 description: 'Toggle global chatbot for all users',
                 usage: '.chatall on/off',
                 permissions: 'owner',
+                ui: {
+                    processingText: '⏳ *Processing Global Chat...*\n\n🌐 Updating global settings...',
+                    errorText: '❌ *Global Chat Toggle Failed*'
+                },
                 execute: this.toggleGlobalChat.bind(this)
             },
             {
@@ -56,6 +64,10 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 description: 'Toggle chatbot for current group',
                 usage: '.groupchat on/off',
                 permissions: 'admin',
+                ui: {
+                    processingText: '⏳ *Processing Group Chat...*\n\n👥 Updating group settings...',
+                    errorText: '❌ *Group Chat Toggle Failed*'
+                },
                 execute: this.toggleGroupChat.bind(this)
             },
             {
@@ -63,6 +75,10 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 description: 'Check chatbot status',
                 usage: '.chatstatus',
                 permissions: 'public',
+                ui: {
+                    processingText: '⏳ *Checking Status...*\n\n📊 Gathering information...',
+                    errorText: '❌ *Status Check Failed*'
+                },
                 execute: this.getChatStatus.bind(this)
             },
             {
@@ -70,6 +86,10 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 description: 'Clear conversation history',
                 usage: '.clearchat',
                 permissions: 'public',
+                ui: {
+                    processingText: '⏳ *Clearing Chat...*\n\n🧹 Removing conversation history...',
+                    errorText: '❌ *Clear Chat Failed*'
+                },
                 execute: this.clearConversation.bind(this)
             },
             {
@@ -77,6 +97,10 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 description: 'Set bot personality (owner only)',
                 usage: '.setpersonality <personality_description>',
                 permissions: 'owner',
+                ui: {
+                    processingText: '⏳ *Setting Personality...*\n\n🤖 Updating AI personality...',
+                    errorText: '❌ *Personality Update Failed*'
+                },
                 execute: this.setPersonality.bind(this)
             },
             {
@@ -84,6 +108,10 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 description: 'Show chatbot help and features',
                 usage: '.chathelp',
                 permissions: 'public',
+                ui: {
+                    processingText: '⏳ *Loading Help...*\n\n📚 Preparing help information...',
+                    errorText: '❌ *Help Load Failed*'
+                },
                 execute: this.showChatHelp.bind(this)
             }
         ];
@@ -95,152 +123,209 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
     }
 
     async init() {
-        if (!this.apiKey || this.apiKey === "YOUR_GEMINI_API_KEY") {
-            logger.error('❌ Gemini API key is missing for ChatBot module');
-            throw new Error('Gemini API key not configured');
+        try {
+            if (!this.apiKey || this.apiKey === "YOUR_GEMINI_API_KEY") {
+                logger.error('❌ Gemini API key is missing for ChatBot module');
+                throw new Error('Gemini API key not configured');
+            }
+
+            this.genAI = new GoogleGenerativeAI(this.apiKey);
+            this.model = this.genAI.getGenerativeModel({ 
+                model: "gemini-2.0-flash",
+                safetySettings: [
+                    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                ]
+            });
+
+            logger.info('✅ ChatBot module initialized with Gemini 2.0 Flash');
+        } catch (error) {
+            logger.error('❌ Failed to initialize ChatBot module:', error);
+            throw error;
         }
-
-        this.genAI = new GoogleGenerativeAI(this.apiKey);
-        this.model = this.genAI.getGenerativeModel({ 
-            model: "gemini-2.0-flash",
-            safetySettings: [
-                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-                { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-            ]
-        });
-
-        logger.info('✅ ChatBot module initialized with Gemini 2.0 Flash');
     }
 
     async toggleChat(msg, params, context) {
-        const action = params[0]?.toLowerCase();
-        const targetUser = params[1];
+        try {
+            const action = params[0]?.toLowerCase();
+            const targetUser = params[1];
 
-        if (!action || !['on', 'off'].includes(action)) {
-            return this.getChatStatus(msg, params, context);
-        }
-
-        const isGroup = context.sender.endsWith('@g.us');
-        const enabled = action === 'on';
-
-        if (targetUser) {
-            // Toggle for specific user
-            const userId = targetUser.replace(/[^\d]/g, '');
-            if (!userId) {
-                return '❌ Invalid user number format.';
+            if (!action || !['on', 'off'].includes(action)) {
+                return await this.getChatStatus(msg, params, context);
             }
 
-            this.userChatSettings.set(userId, enabled);
-            return `💬 *Chat ${enabled ? 'Enabled' : 'Disabled'}* for user +${userId}`;
+            const isGroup = context.sender.endsWith('@g.us');
+            const enabled = action === 'on';
 
-        } else if (isGroup) {
-            // Toggle for current group
-            this.groupChatSettings.set(context.sender, enabled);
-            return `💬 *Group Chat ${enabled ? 'Enabled' : 'Disabled'}*\n\n${enabled ? 'I\'ll now respond to messages in this group!' : 'I\'ll stop responding to messages in this group.'}`;
+            if (targetUser) {
+                // Toggle for specific user
+                const userId = targetUser.replace(/[^\d]/g, '');
+                if (!userId) {
+                    return '❌ Invalid user number format.\n\nPlease provide a valid phone number.';
+                }
 
-        } else {
-            // Toggle for current user
-            const userId = context.participant.split('@')[0];
-            this.userChatSettings.set(userId, enabled);
-            return `💬 *Chat ${enabled ? 'Enabled' : 'Disabled'}* for you\n\n${enabled ? 'I\'ll now respond to your messages!' : 'I\'ll stop responding to your messages.'}`;
+                this.userChatSettings.set(userId, enabled);
+                return `💬 *Chat ${enabled ? 'Enabled' : 'Disabled'}*\n\nUser: +${userId}\nStatus: ${enabled ? '✅ Active' : '❌ Inactive'}`;
+
+            } else if (isGroup) {
+                // Toggle for current group
+                this.groupChatSettings.set(context.sender, enabled);
+                return `💬 *Group Chat ${enabled ? 'Enabled' : 'Disabled'}*\n\n${enabled ? 'I\'ll now respond to messages in this group! 🎉' : 'I\'ll stop responding to messages in this group. 😴'}`;
+
+            } else {
+                // Toggle for current user
+                const userId = context.participant.split('@')[0];
+                this.userChatSettings.set(userId, enabled);
+                return `💬 *Chat ${enabled ? 'Enabled' : 'Disabled'}*\n\n${enabled ? 'I\'ll now respond to your messages! 🎉' : 'I\'ll stop responding to your messages. 😴'}`;
+            }
+        } catch (error) {
+            logger.error('Error in toggleChat:', error);
+            return '❌ Failed to toggle chat settings. Please try again.';
         }
     }
 
     async toggleGlobalChat(msg, params, context) {
-        const action = params[0]?.toLowerCase();
+        try {
+            const action = params[0]?.toLowerCase();
 
-        if (!action || !['on', 'off'].includes(action)) {
-            return `🌐 *Global Chat: ${this.globalChatEnabled ? '✅ ON' : '❌ OFF'}*\n\nUsage: .chatall on/off`;
+            if (!action || !['on', 'off'].includes(action)) {
+                return `🌐 *Global Chat Status*\n\nCurrent: ${this.globalChatEnabled ? '✅ ENABLED' : '❌ DISABLED'}\n\n💡 Usage: \`.chatall on/off\``;
+            }
+
+            this.globalChatEnabled = action === 'on';
+
+            return `🌐 *Global Chat ${this.globalChatEnabled ? 'Enabled' : 'Disabled'}*\n\n` +
+                   `${this.globalChatEnabled ? 'I\'ll now respond to all users by default! 🌟' : 'Global chat disabled. Individual settings will be used. ⚙️'}`;
+        } catch (error) {
+            logger.error('Error in toggleGlobalChat:', error);
+            return '❌ Failed to toggle global chat. Please try again.';
         }
-
-        this.globalChatEnabled = action === 'on';
-
-        return `🌐 *Global Chat ${this.globalChatEnabled ? 'Enabled' : 'Disabled'}*\n\n` +
-               `${this.globalChatEnabled ? 'I\'ll now respond to all users by default!' : 'Global chat disabled. Use individual settings.'}`;
     }
 
     async toggleGroupChat(msg, params, context) {
-        const action = params[0]?.toLowerCase();
+        try {
+            if (!context.sender.endsWith('@g.us')) {
+                return '❌ *Group Only Command*\n\nThis command can only be used in group chats.';
+            }
 
-        if (!context.sender.endsWith('@g.us')) {
-            return '❌ This command can only be used in groups.';
+            const action = params[0]?.toLowerCase();
+
+            if (!action || !['on', 'off'].includes(action)) {
+                const currentStatus = this.groupChatSettings.get(context.sender) || false;
+                return `👥 *Group Chat Status*\n\nCurrent: ${currentStatus ? '✅ ENABLED' : '❌ DISABLED'}\n\n💡 Usage: \`.groupchat on/off\``;
+            }
+
+            const enabled = action === 'on';
+            this.groupChatSettings.set(context.sender, enabled);
+
+            return `👥 *Group Chat ${enabled ? 'Enabled' : 'Disabled'}*\n\n` +
+                   `${enabled ? 'I\'ll now participate in group conversations! 🎉' : 'I\'ll stop responding in this group. 😴'}`;
+        } catch (error) {
+            logger.error('Error in toggleGroupChat:', error);
+            return '❌ Failed to toggle group chat. Please try again.';
         }
-
-        if (!action || !['on', 'off'].includes(action)) {
-            const currentStatus = this.groupChatSettings.get(context.sender) || false;
-            return `👥 *Group Chat: ${currentStatus ? '✅ ON' : '❌ OFF'}*\n\nUsage: .groupchat on/off`;
-        }
-
-        const enabled = action === 'on';
-        this.groupChatSettings.set(context.sender, enabled);
-
-        return `👥 *Group Chat ${enabled ? 'Enabled' : 'Disabled'}*\n\n` +
-               `${enabled ? 'I\'ll now participate in group conversations!' : 'I\'ll stop responding in this group.'}`;
     }
 
     async getChatStatus(msg, params, context) {
-        const isGroup = context.sender.endsWith('@g.us');
-        const userId = context.participant.split('@')[0];
+        try {
+            const isGroup = context.sender.endsWith('@g.us');
+            const userId = context.participant.split('@')[0];
 
-        let status = `💬 *ChatBot Status*\n\n`;
-        status += `🌐 Global Chat: ${this.globalChatEnabled ? '✅' : '❌'}\n`;
+            let status = `💬 *ChatBot Status Report*\n\n`;
+            status += `🌐 Global Chat: ${this.globalChatEnabled ? '✅ Enabled' : '❌ Disabled'}\n`;
 
-        if (isGroup) {
-            const groupEnabled = this.groupChatSettings.get(context.sender) || false;
-            status += `👥 This Group: ${groupEnabled ? '✅' : '❌'}\n`;
+            if (isGroup) {
+                const groupEnabled = this.groupChatSettings.get(context.sender) || false;
+                status += `👥 This Group: ${groupEnabled ? '✅ Enabled' : '❌ Disabled'}\n`;
+            }
+
+            const userEnabled = this.userChatSettings.get(userId);
+            const userStatus = userEnabled !== undefined ? userEnabled : this.globalChatEnabled;
+            status += `👤 Your Chat: ${userStatus ? '✅ Enabled' : '❌ Disabled'}\n`;
+
+            status += `\n📊 *Statistics:*\n`;
+            status += `• Active Users: ${[...this.userChatSettings.values()].filter(Boolean).length}\n`;
+            status += `• Active Groups: ${[...this.groupChatSettings.values()].filter(Boolean).length}\n`;
+            status += `• Active Conversations: ${this.conversations.size}\n`;
+
+            const willRespond = this.shouldRespondToChat(context);
+            status += `\n🤖 *Will I respond to you?* ${willRespond ? '✅ Yes' : '❌ No'}`;
+
+            return status;
+        } catch (error) {
+            logger.error('Error in getChatStatus:', error);
+            return '❌ Failed to get chat status. Please try again.';
         }
-
-        const userEnabled = this.userChatSettings.get(userId);
-        const userStatus = userEnabled !== undefined ? userEnabled : this.globalChatEnabled;
-        status += `👤 Your Chat: ${userStatus ? '✅' : '❌'}\n`;
-
-        status += `\n📊 *Statistics:*\n`;
-        status += `• Active Users: ${[...this.userChatSettings.values()].filter(Boolean).length}\n`;
-        status += `• Active Groups: ${[...this.groupChatSettings.values()].filter(Boolean).length}\n`;
-        status += `• Conversations: ${this.conversations.size}\n`;
-
-        return status;
     }
 
     async clearConversation(msg, params, context) {
-        const conversationId = this.getConversationId(context);
-        this.conversations.delete(conversationId);
+        try {
+            const conversationId = this.getConversationId(context);
+            const hadConversation = this.conversations.has(conversationId);
+            
+            this.conversations.delete(conversationId);
 
-        return `🧹 *Conversation Cleared*\n\nYour chat history has been reset. Starting fresh! 🌟`;
+            if (hadConversation) {
+                return `🧹 *Conversation Cleared Successfully*\n\nYour chat history has been reset. Starting fresh! 🌟`;
+            } else {
+                return `🧹 *No Conversation Found*\n\nThere was no existing conversation history to clear. Ready for a fresh start! 🌟`;
+            }
+        } catch (error) {
+            logger.error('Error in clearConversation:', error);
+            return '❌ Failed to clear conversation. Please try again.';
+        }
     }
 
     async setPersonality(msg, params, context) {
-        if (params.length === 0) {
-            return `🤖 *Current Personality:*\n\n${this.botPersonality}\n\n💡 Usage: .setpersonality <new_personality>`;
-        }
+        try {
+            if (params.length === 0) {
+                return `🤖 *Current Personality:*\n\n${this.botPersonality}\n\n💡 **Usage:** \`.setpersonality <new_personality_description>\``;
+            }
 
-        this.botPersonality = params.join(' ');
-        
-        return `🤖 *Personality Updated!*\n\nI've adopted a new personality. Try chatting with me to see the difference! ✨`;
+            const newPersonality = params.join(' ').trim();
+            if (newPersonality.length < 10) {
+                return '❌ *Personality Too Short*\n\nPlease provide a more detailed personality description (at least 10 characters).';
+            }
+
+            this.botPersonality = newPersonality;
+            
+            return `🤖 *Personality Updated Successfully!*\n\n**New Personality:** ${newPersonality.substring(0, 100)}${newPersonality.length > 100 ? '...' : ''}\n\nTry chatting with me to see the difference! ✨`;
+        } catch (error) {
+            logger.error('Error in setPersonality:', error);
+            return '❌ Failed to update personality. Please try again.';
+        }
     }
 
     async showChatHelp(msg, params, context) {
-        return `💬 *ChatBot Help & Features*\n\n` +
-               `🤖 **What I can do:**\n` +
-               `• Have natural conversations\n` +
-               `• Remember our chat history\n` +
-               `• Answer questions on any topic\n` +
-               `• Help with tasks and problems\n` +
-               `• Provide information and explanations\n` +
-               `• Be your AI companion! 🌟\n\n` +
-               `⚙️ **Commands:**\n` +
-               `• \`.chat on/off\` - Toggle for you/group\n` +
-               `• \`.chatstatus\` - Check current status\n` +
-               `• \`.clearchat\` - Clear conversation history\n` +
-               `• \`.chathelp\` - Show this help\n\n` +
-               `💡 **Tips:**\n` +
-               `• Just type normally to chat with me\n` +
-               `• I remember our conversation context\n` +
-               `• Ask me anything - I'm here to help!\n` +
-               `• Use commands to control my behavior\n\n` +
-               `🚀 Ready to chat? Just send me a message!`;
+        try {
+            return `💬 *ChatBot Help & Features*\n\n` +
+                   `🤖 **What I can do:**\n` +
+                   `• Have natural conversations\n` +
+                   `• Remember our chat history (${this.maxConversationLength} messages)\n` +
+                   `• Answer questions on any topic\n` +
+                   `• Help with tasks and problems\n` +
+                   `• Provide information and explanations\n` +
+                   `• Be your AI companion! 🌟\n\n` +
+                   `⚙️ **Commands:**\n` +
+                   `• \`.chat on/off\` - Toggle for you/group\n` +
+                   `• \`.chatstatus\` - Check current status\n` +
+                   `• \`.clearchat\` - Clear conversation history\n` +
+                   `• \`.chathelp\` - Show this help\n` +
+                   `• \`.chatall on/off\` - Global toggle (owner only)\n` +
+                   `• \`.groupchat on/off\` - Group toggle (admin)\n` +
+                   `• \`.setpersonality\` - Change AI personality (owner)\n\n` +
+                   `💡 **Tips:**\n` +
+                   `• Just type normally to chat with me\n` +
+                   `• I remember our conversation context\n` +
+                   `• Ask me anything - I'm here to help!\n` +
+                   `• Use commands to control my behavior\n\n` +
+                   `🚀 Ready to chat? Just send me a message!`;
+        } catch (error) {
+            logger.error('Error in showChatHelp:', error);
+            return '❌ Failed to load help information. Please try again.';
+        }
     }
 
     async handleChatMessage(msg, text, bot) {
@@ -335,7 +420,7 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
 
         } catch (error) {
             logger.error('Error generating chat response:', error);
-            return null;
+            return '❌ Sorry, I encountered an error generating a response. Please try again.';
         }
     }
 
@@ -368,6 +453,8 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
             history.shift();
         }
     }
+
+
 }
 
 module.exports = ChatBotModule;

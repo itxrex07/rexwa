@@ -1,138 +1,146 @@
 const axios = require('axios');
 
 /**
- * TimeModule: Displays the current local time for a specified city, region, or country.
- * Outputs time in 12-hour and 24-hour formats, timezone, and date with day name.
+ * TimeModule: Displays the current local time and date for a specified city.
+ * Optionally includes weather if the OpenWeatherMap API key is configured.
  */
 class TimeModule {
   constructor(bot) {
     this.bot = bot;
     this.name = 'time';
     this.metadata = {
-      description: 'Displays current local time, timezone, and date for a city, region, or country.',
-      version: '1.2.0',
+      description: 'Shows current local time, date, timezone, and (optionally) weather for a city.',
+      version: '2.1.0',
       author: 'HyperWa Team',
       category: 'utility',
     };
 
-    // Fixed default location
-    this.defaultLocation = 'New York';
+    // --- API CREDENTIALS ---
+    // Geonames is required.
+    this.geoApiUsername = 'tahseen'; // Get from geonames.org
 
-    // Command definitions
-    this.commands = [
-      {
-        name: 'time',
-        description: 'Shows the current local time, timezone, and date for a city, region, or country, or the default location (New York).',
-        usage: '.time [city/region/country] OR .time',
-        aliases: ['t'],
-        permissions: 'public',
-        ui: {
-          processingText: '⏳ Fetching time...',
-          errorText: '❌ Failed to fetch time',
-        },
-        execute: this.timeCommand.bind(this),
+    // Weather is optional. Leave as is to disable.
+    this.weatherApiKey = 'your_openweathermap_api_key'; // Get from openweathermap.org
+    // ---------------------------------------------
+
+    this.defaultLocation = 'Los Angeles';
+
+    this.WEATHER_EMOJIS = {
+      "clear sky": "☀️", "few clouds": "🌤️", "scattered clouds": "⛅️",
+      "broken clouds": "☁️", "overcast clouds": "🌥️", "light rain": "🌧️",
+      "moderate rain": "🌧️", "heavy intensity rain": "🌧️", "shower rain": "🌧️",
+      "thunderstorm": "⛈️", "snow": "🌨️", "light snow": "🌨️",
+      "shower snow": "🌨️", "mist": "🌫️", "haze": "🌫️", "smoke": "💨",
+    };
+
+    this.commands = [{
+      name: 'time',
+      description: 'Shows the current time, date, and (if configured) weather for a city.',
+      usage: '.time [city name]',
+      aliases: ['t'],
+      permissions: 'public',
+      ui: {
+        processingText: '⏳ Fetching geo-data...',
+        errorText: '❌ An unexpected error occurred.',
       },
-    ];
+      execute: this.timeCommand.bind(this),
+    }];
   }
 
   /**
-   * Fetches and displays the current local time, timezone, and date for a specified or default location.
-   * @param {object} msg - The message object from Baileys.
-   * @param {string[]} params - Command parameters (city, region, or country).
-   * @param {object} context - Additional context.
-   * @returns {Promise<string>} The formatted time, timezone, and date output.
+   * Main command executor. Orchestrates API calls and formats the final output.
    */
   async timeCommand(msg, params, context) {
     const location = params.length > 0 ? params.join(' ') : this.defaultLocation;
 
+    if (!this.geoApiUsername || this.geoApiUsername === 'your_geonames_username') {
+      return '❌ Geonames API username must be configured in the TimeModule.';
+    }
+
     try {
-      const timeData = await this.getTimeForLocation(location);
-      const formattedTime12 = this.formatTime(timeData.datetime, true);
-      const formattedTime24 = this.formatTime(timeData.datetime, false);
-      const formattedDate = this.formatDate(timeData.datetime);
-      return `Time in ${location}:\nTime: ${formattedTime12} | ${formattedTime24}\nTimezone: ${timeData.timezone}\nDate: ${formattedDate}`;
+      // Basic time/date info is always fetched
+      const { lat, lng } = await this._getCoordinates(location);
+      const timezoneData = await this._getTimezoneData(lat, lng);
+      const timezoneId = timezoneData.timezoneId;
+
+      // **MODIFIED LOGIC STARTS HERE**
+      let weatherLine = ''; // Initialize weather line as an empty string
+      const isWeatherConfigured = this.weatherApiKey && this.weatherApiKey !== 'your_openweathermap_api_key';
+
+      // Only fetch and format weather if the API key is set
+      if (isWeatherConfigured) {
+        const weatherData = await this._getWeatherData(location);
+        if (weatherData && weatherData.weather) {
+          const temp = weatherData.main.temp;
+          const description = weatherData.weather[0].description;
+          const emoji = this.WEATHER_EMOJIS[description.toLowerCase()] || "";
+          const summaryText = `WX: ${description.charAt(0).toUpperCase() + description.slice(1)} ${temp}°C ${emoji}`.trim();
+          // Format the entire line, including newline and bolding
+          weatherLine = `\n*${summaryText}*`;
+        }
+      }
+      // **MODIFIED LOGIC ENDS HERE**
+
+      // Format date and time
+      const now = new Date();
+      const time24 = now.toLocaleTimeString('en-GB', { timeZone: timezoneId });
+      const time12 = now.toLocaleTimeString('en-US', { timeZone: timezoneId, hour: 'numeric', minute: '2-digit', hour12: true });
+      const date = now.toLocaleDateString('en-US', { timeZone: timezoneId, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'long' });
+
+      // Assemble the final response
+      return (
+        `*Currently in ${timezoneData.countryName}/${location}:*\n\n` +
+        `*Time:* ${time12} | ${time24}\n` +
+        `*Date:* ${date}\n` +
+        `*Timezone:* ${timezoneId}` +
+        `${weatherLine}` // Append the weather line. If not configured, this is empty.
+      );
+
     } catch (error) {
       return `❌ Failed to fetch time for "${location}": ${error.message}`;
     }
   }
 
-  /**
-   * Fetches the current time for a given location using the World Time API.
-   * @param {string} location - The city, region, or country name.
-   * @returns {Promise<object>} Time data including datetime and timezone.
-   */
-/**
- * Fetches the current time for a given location using the World Time API.
- * This version searches for a matching timezone from the API's list.
- * @param {string} location - The city, region, or country name provided by the user.
- * @returns {Promise<object>} Time data including datetime and timezone.
- */
-async getTimeForLocation(location) {
-  try {
-    // 1. Fetch the list of all valid timezones from the API.
-    const allTimezonesResponse = await axios.get('https://worldtimeapi.org/api/timezone');
-    const allTimezones = allTimezonesResponse.data;
+  // --- Helper functions (_getCoordinates, _getTimezoneData, _getWeatherData) remain the same ---
 
-    // 2. Prepare the user's input for searching (case-insensitive, uses underscore).
-    const searchQuery = location.replace(/\s+/g, '_').toLowerCase();
-
-    // 3. Find the first timezone that includes the user's search query.
-    // e.g., input "sydney" will match "Australia/Sydney".
-    const foundTimezone = allTimezones.find(tz => tz.toLowerCase().includes(searchQuery));
-
-    // 4. If no matching timezone is found, throw a clear error.
-    if (!foundTimezone) {
-      throw new Error('Location not found.');
+  async _getCoordinates(location) {
+    const url = 'http://api.geonames.org/searchJSON';
+    const params = { q: location, username: this.geoApiUsername, maxRows: 1 };
+    try {
+      const response = await axios.get(url, { params });
+      if (response.data.geonames && response.data.geonames.length > 0) {
+        return { lat: response.data.geonames[0].lat, lng: response.data.geonames[0].lng };
+      }
+      throw new Error('City not found.');
+    } catch (err) {
+      throw new Error('Geonames API error or city not found.');
     }
-
-    // 5. A valid timezone was found, now fetch the time for it.
-    // The foundTimezone is already in the correct `Area/Location` format.
-    const response = await axios.get(`https://worldtimeapi.org/api/timezone/${foundTimezone}`);
-
-    if (!response.data.datetime || !response.data.timezone) {
-      throw new Error('Invalid response from time API');
-    }
-
-    return {
-      datetime: response.data.datetime,
-      timezone: response.data.timezone,
-    };
-  } catch (error) {
-    // Pass along a cleaner error message.
-    // If the API returned a specific error (like `error.response.data.error`), use it.
-    // Otherwise, use the error message we created (e.g., "Location not found.").
-    throw new Error(error.response?.data?.error || error.message || 'API error');
-  }
-}
-  /**
-   * Formats a datetime string into 12-hour or 24-hour time format.
-   * @param {string} datetime - The ISO datetime string from the API.
-   * @param {boolean} is12Hour - Whether to use 12-hour format (true) or 24-hour (false).
-   * @returns {string} Formatted time string.
-   */
-  formatTime(datetime, is12Hour) {
-    const date = new Date(datetime);
-    return date.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: is12Hour,
-    });
   }
 
-  /**
-   * Formats a datetime string into a date with day name (e.g., Sunday, August 10, 2025).
-   * @param {string} datetime - The ISO datetime string from the API.
-   * @returns {string} Formatted date string.
-   */
-  formatDate(datetime) {
-    const date = new Date(datetime);
-    return date.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+  async _getTimezoneData(lat, lng) {
+    const url = 'http://api.geonames.org/timezoneJSON';
+    const params = { lat, lng, username: this.geoApiUsername };
+    try {
+      const response = await axios.get(url, { params });
+      if (response.data.timezoneId) {
+        return response.data;
+      }
+      throw new Error('Could not determine timezone.');
+    } catch (err) {
+      throw new Error('Geonames timezone API error.');
+    }
+  }
+
+  async _getWeatherData(location) {
+    const url = 'http://api.openweathermap.org/data/2.5/weather';
+    const params = { q: location, appid: this.weatherApiKey, units: 'metric' };
+    try {
+      const response = await axios.get(url, { params });
+      return response.data;
+    } catch (err) {
+      console.error("OpenWeatherMap API error:", err.response?.data?.message || err.message);
+      return null;
+    }
   }
 }
 

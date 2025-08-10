@@ -6,7 +6,7 @@ class Config {
                 company: 'Dawium Technologies',
                 prefix: '.',
                 version: '2.0.0',
-                owner: '9230754174221@s.whatsapp.net', // Include full JID
+                owner: '923075417411@s.whatsapp.net', // Include full JID
                 clearAuthOnStart: false
             },
 

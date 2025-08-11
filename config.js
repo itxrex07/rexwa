@@ -23,7 +23,7 @@ class Config {
             features: {
                 mode: 'public',                   // 'public' or 'private'
                 customModules: true,              // Enable custom modules
-                rateLimiting: true,               // Enable rate limiting
+                rateLimiting: false,              // Disable rate limiting for better performance
                 telegramBridge: true,             // Sync with Telegram
                 respondToUnknownCommands: false, // Respond to unknown commands
                 sendPermissionError: false        // Send error for disallowed commands

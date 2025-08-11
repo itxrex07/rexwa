@@ -169,6 +169,18 @@ class HyperWaBot {
                 generateHighQualityLinkPreview: true,
                 getMessage: this.getMessage.bind(this),
                 browser: ['HyperWa', 'Chrome', '3.0'],
+                // Add connection options for better stability
+                connectTimeoutMs: 60000,
+                defaultQueryTimeoutMs: 60000,
+                keepAliveIntervalMs: 10000,
+                // Reduce message retry attempts to avoid spam
+                retryRequestDelayMs: 250,
+                maxMsgRetryCount: 3,
+                // Enable message history for better message retrieval
+                syncFullHistory: false,
+                markOnlineOnConnect: true,
+                // Add firewall bypass
+                firewall: false
             });
 
             // CRITICAL: Bind store to socket events for data persistence
@@ -205,17 +217,22 @@ class HyperWaBot {
 
     // Enhanced getMessage with store lookup
     async getMessage(key) {
-        // Try to get message from store first
-        if (key?.remoteJid && key?.id) {
-            const storedMessage = this.store.loadMessage(key.remoteJid, key.id);
-            if (storedMessage) {
-                logger.debug(`📨 Retrieved message from store: ${key.id}`);
-                return storedMessage;
+        try {
+            // Try to get message from store first
+            if (key?.remoteJid && key?.id) {
+                const storedMessage = this.store.loadMessage(key.remoteJid, key.id);
+                if (storedMessage) {
+                    logger.debug(`📨 Retrieved message from store: ${key.id}`);
+                    return storedMessage;
+                }
             }
+            
+            // Return undefined instead of fake message to avoid decryption issues
+            return undefined;
+        } catch (error) {
+            logger.warn('⚠️ Error retrieving message:', error.message);
+            return undefined;
         }
-        
-        // Fallback to empty message
-        return proto.Message.fromObject({ conversation: 'Message not found' });
     }
 
     // Store-powered helper methods

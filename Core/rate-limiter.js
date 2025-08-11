@@ -2,9 +2,14 @@ class RateLimiter {
     constructor() {
         this.userLimits = new Map();
         this.commandLimits = new Map();
+        
+        // Clean up old entries periodically
+        setInterval(() => {
+            this.cleanup();
+        }, 300000); // Every 5 minutes
     }
 
-    async checkCommandLimit(userId, maxCommands = 10, windowMs = 60000) {
+    async checkCommandLimit(userId, maxCommands = 15, windowMs = 60000) {
         const now = Date.now();
         const userKey = `cmd_${userId}`;
         
@@ -36,6 +41,20 @@ class RateLimiter {
         const remaining = windowMs - (Date.now() - oldestCommand);
         
         return Math.max(0, remaining);
+    }
+    
+    cleanup() {
+        const now = Date.now();
+        const windowMs = 300000; // 5 minutes
+        
+        for (const [key, commands] of this.commandLimits.entries()) {
+            const validCommands = commands.filter(time => now - time < windowMs);
+            if (validCommands.length === 0) {
+                this.commandLimits.delete(key);
+            } else {
+                this.commandLimits.set(key, validCommands);
+            }
+        }
     }
 }
 

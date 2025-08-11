@@ -326,11 +326,17 @@ class InMemoryStore extends events.EventEmitter {
      * @param {string} type - The type of upsert (default: 'append').
      */
     upsertMessage(message = {}, type = 'append') {
-        const chatId = message?.key?.remoteJid;
-        if (!chatId || !message?.key?.id) return;
-        if (!this.messages[chatId]) this.messages[chatId] = {};
-        this.messages[chatId][message.key.id] = message;
-        this.emit('messages.upsert', { messages: [message], type });
+        try {
+            const chatId = message?.key?.remoteJid;
+            if (!chatId || !message?.key?.id) return;
+            if (!this.messages[chatId]) this.messages[chatId] = {};
+            
+            // Store a copy to avoid reference issues
+            this.messages[chatId][message.key.id] = JSON.parse(JSON.stringify(message));
+            this.emit('messages.upsert', { messages: [message], type });
+        } catch (error) {
+            this.logger.error('Error upserting message:', error);
+        }
     }
 
     /**
@@ -372,8 +378,18 @@ class InMemoryStore extends events.EventEmitter {
      * @returns {Object|undefined} The message object or undefined if not found.
      */
     loadMessage(jid, id) {
-        if (!jid || !id) return undefined;
-        return this.messages[jid]?.[id];
+        try {
+            if (!jid || !id) return undefined;
+            const message = this.messages[jid]?.[id];
+            if (message) {
+                // Return a copy to avoid mutations
+                return JSON.parse(JSON.stringify(message));
+            }
+            return undefined;
+        } catch (error) {
+            this.logger.error('Error loading message:', error);
+            return undefined;
+        }
     }
 
     /**

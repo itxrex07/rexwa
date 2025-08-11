@@ -409,85 +409,35 @@ Keep responses concise but informative. Be engaging and personable.`;
         }
     }
 
-    async setTimezone(msg, params, context) {
+    async showChatHelp(msg, params, context) {
         try {
-            if (params.length === 0) {
-                return `Current Timezone: ${this.customTimezone}\n\nUsage: .timezone <timezone>\nExample: .timezone Asia/Karachi\n.timezone America/New_York\n.timezone Europe/London\n\nUse .timezone list to see common timezones`;
-            }
-
-            if (params[0].toLowerCase() === 'list') {
-                return `Common Timezones:\n\n` +
-                       `Asia/Karachi (Pakistan)\n` +
-                       `Asia/Dubai (UAE)\n` +
-                       `Asia/Kolkata (India)\n` +
-                       `America/New_York (US East)\n` +
-                       `America/Los_Angeles (US West)\n` +
-                       `Europe/London (UK)\n` +
-                       `Europe/Paris (France/Germany)\n` +
-                       `Asia/Tokyo (Japan)\n` +
-                       `Asia/Shanghai (China)\n` +
-                       `Australia/Sydney (Australia)\n` +
-                       `UTC (Universal Time)\n\n` +
-                       `Usage: .timezone <timezone_name>`;
-            }
-
-            const timezone = params[0];
-            
-            // Validate timezone
-            try {
-                new Date().toLocaleString('en-US', { timeZone: timezone });
-                this.customTimezone = timezone;
-                
-                // Save to database
-                await this.collection.updateOne(
-                    { type: 'settings', key: 'timezone' },
-                    { $set: { value: timezone, updatedAt: new Date() } },
-                    { upsert: true }
-                );
-                
-                const currentTime = this.getFormattedTimestamp();
-                return `Timezone Set Successfully\n\nNew Timezone: ${timezone}\nCurrent Time: ${currentTime}`;
-            } catch (error) {
-                return `Invalid timezone: ${timezone}\n\nUse .timezone list to see valid timezones or check IANA timezone database`;
-            }
+            return `ChatBot Help & Features\n\n` +
+                   `What I can do:\n` +
+                   `- Have natural conversations\n` +
+                   `- Remember chat history (${this.maxConversationLength} messages)\n` +
+                   `- Process text, images, documents and media\n` +
+                   `- Answer questions on any topic\n` +
+                   `- Help with tasks and problems\n\n` +
+                   `Commands:\n` +
+                   `.chat on/off [number] - Toggle for user/group\n` +
+                   `.chatall on/off - Global toggle (owner)\n` +
+                   `.groupchat on/off - Group toggle (admin)\n` +
+                   `.chatstatus - Check current status\n` +
+                   `.chatdel [number/all] - Delete chat history\n` +
+                   `.setrole <description> [number] - Set custom role\n` +
+                   `.resetrole [number] - Reset to default role\n` +
+                   `.botrole <description> - Set global role (owner)\n` +
+                   `.chathelp - Show this help\n\n` +
+                   `Tips:\n` +
+                   `- Just type normally to chat with me\n` +
+                   `- I remember conversation context\n` +
+                   `- Send images, documents or media for analysis\n` +
+                   `- Use commands to control my behavior`;
         } catch (error) {
-            logger.error('Error in setTimezone:', error);
-            return 'Failed to set timezone. Please try again.';
+            logger.error('Error in showChatHelp:', error);
+            return 'Failed to load help information. Please try again.';
         }
     }
-
-getFormattedTimestamp() {
-    try {
-        const now = new Date();
-        return now.toLocaleString('en-US', {
-            timeZone: this.customTimezone,
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: false
-        }) + ` (${this.customTimezone})`;
-    } catch (error) {
-        logger.error('Error formatting timestamp:', error);
-        return new Date().toISOString();
-    }
-}showChatHelp() {
-    try {
-        return `ChatBot Help & Features\n\n` +
-               `What I can do:\n` +
-               `- Have natural conversations\n` +
-               `- Answer questions on various topics\n` +
-               `- Provide weather updates\n` +
-               `- Translate text\n` +
-               `- And much more...\n\n` +
-               `Type a command or ask me something to get started!`;
-    } catch (error) {
-        logger.error('Error generating help text:', error);
-        return 'Unable to display help at the moment.';
-    }
-}
 
     async handleChatMessage(msg, text, bot) {
         // Skip if it's a command
@@ -584,26 +534,18 @@ getFormattedTimestamp() {
                 });
             }
             
-            // Process message content and media
-            const { text, media } = await this.extractMessageContentWithMedia(msg);
+            // Process message content (text and media)
+            const messageContent = await this.extractMessageContent(msg);
             
             // Add current message
-            prompt += `Current message [${timestamp}]: ${text}`;
+            prompt += `Current message [${timestamp}]: ${messageContent}`;
 
-            // Prepare content for Gemini (text + media)
-            let geminiContent = [{ text: prompt }];
-            
-            // Add media to Gemini content if present
-            if (media) {
-                geminiContent.push(media);
-            }
-
-            const result = await this.model.generateContent(geminiContent);
+            const result = await this.model.generateContent(prompt);
             const response = await result.response;
             const aiResponse = response.text();
 
             // Update conversation history in database
-            await this.addToConversation(conversationId, text, aiResponse);
+            await this.addToConversation(conversationId, messageContent, aiResponse);
 
             return aiResponse;
 
@@ -613,7 +555,7 @@ getFormattedTimestamp() {
         }
     }
 
-    async extractMessageContentWithMedia(msg) {
+    async extractMessageContent(msg) {
         try {
             // Handle text messages
             const text = msg.message?.conversation || 
@@ -622,136 +564,31 @@ getFormattedTimestamp() {
                         msg.message?.videoMessage?.caption || 
                         msg.message?.documentMessage?.caption || '';
 
-            let contentText = text;
-            let media = null;
+            let content = text;
 
-            // Handle different media types for Gemini Vision
+            // Handle different media types
             if (msg.message?.imageMessage) {
-                try {
-                    const imageBuffer = await this.bot.sock.downloadMediaMessage(msg);
-                    const mimeType = msg.message.imageMessage.mimetype || 'image/jpeg';
-                    
-                    media = {
-                        inlineData: {
-                            data: imageBuffer.toString('base64'),
-                            mimeType: mimeType
-                        }
-                    };
-                    
-                    contentText += text ? '\n[Image sent for analysis]' : '[Image sent for analysis]';
-                    logger.info('Image prepared for Gemini Vision analysis');
-                } catch (error) {
-                    logger.error('Failed to download image:', error);
-                    contentText += text ? '\n[Image attached - download failed]' : '[Image attached - download failed]';
-                }
-            } 
-            else if (msg.message?.videoMessage) {
-                try {
-                    const videoBuffer = await this.bot.sock.downloadMediaMessage(msg);
-                    const mimeType = msg.message.videoMessage.mimetype || 'video/mp4';
-                    
-                    // Check if video format is supported by Gemini
-                    if (this.isSupportedVideoFormat(mimeType)) {
-                        media = {
-                            inlineData: {
-                                data: videoBuffer.toString('base64'),
-                                mimeType: mimeType
-                            }
-                        };
-                        contentText += text ? '\n[Video sent for analysis]' : '[Video sent for analysis]';
-                        logger.info('Video prepared for Gemini Vision analysis');
-                    } else {
-                        contentText += text ? '\n[Video attached - unsupported format]' : '[Video attached - unsupported format]';
-                        logger.warn('Unsupported video format for Gemini:', mimeType);
-                    }
-                } catch (error) {
-                    logger.error('Failed to download video:', error);
-                    contentText += text ? '\n[Video attached - download failed]' : '[Video attached - download failed]';
-                }
-            }
-            else if (msg.message?.audioMessage) {
-                contentText += text ? '\n[Audio message attached]' : '[Audio message attached]';
-            } 
-            else if (msg.message?.documentMessage) {
+                content += text ? '\n[Image attached]' : '[Image attached]';
+                // TODO: Add image analysis with Gemini Vision if needed
+            } else if (msg.message?.videoMessage) {
+                content += text ? '\n[Video attached]' : '[Video attached]';
+            } else if (msg.message?.audioMessage) {
+                content += text ? '\n[Audio message attached]' : '[Audio message attached]';
+            } else if (msg.message?.documentMessage) {
                 const docName = msg.message.documentMessage.fileName || 'Unknown document';
-                const mimeType = msg.message.documentMessage.mimetype;
-                
-                // Handle PDF documents with Gemini
-                if (mimeType === 'application/pdf') {
-                    try {
-                        const docBuffer = await this.bot.sock.downloadMediaMessage(msg);
-                        media = {
-                            inlineData: {
-                                data: docBuffer.toString('base64'),
-                                mimeType: 'application/pdf'
-                            }
-                        };
-                        contentText += text ? `\n[PDF document sent for analysis: ${docName}]` : `[PDF document sent for analysis: ${docName}]`;
-                        logger.info('PDF prepared for Gemini analysis');
-                    } catch (error) {
-                        logger.error('Failed to download PDF:', error);
-                        contentText += text ? `\n[Document attached: ${docName} - download failed]` : `[Document attached: ${docName} - download failed]`;
-                    }
-                } else {
-                    contentText += text ? `\n[Document attached: ${docName}]` : `[Document attached: ${docName}]`;
-                }
-            } 
-            else if (msg.message?.stickerMessage) {
-                contentText = '[Sticker sent]';
-            } 
-            else if (msg.message?.locationMessage) {
-                const lat = msg.message.locationMessage.degreesLatitude;
-                const lng = msg.message.locationMessage.degreesLongitude;
-                contentText = `[Location shared: ${lat}, ${lng}]`;
-            } 
-            else if (msg.message?.contactMessage) {
-                contentText = '[Contact shared]';
+                content += text ? `\n[Document attached: ${docName}]` : `[Document attached: ${docName}]`;
+            } else if (msg.message?.stickerMessage) {
+                content = '[Sticker sent]';
+            } else if (msg.message?.locationMessage) {
+                content = '[Location shared]';
+            } else if (msg.message?.contactMessage) {
+                content = '[Contact shared]';
             }
 
-            return {
-                text: contentText || '[Unsupported message type]',
-                media: media
-            };
+            return content || '[Unsupported message type]';
         } catch (error) {
-            logger.error('Error extracting message content with media:', error);
-            return {
-                text: '[Error processing message]',
-                media: null
-            };
-        }
-    }
-
-    isSupportedVideoFormat(mimeType) {
-        const supportedFormats = [
-            'video/mp4',
-            'video/mpeg',
-            'video/mov',
-            'video/avi',
-            'video/x-flv',
-            'video/mpg',
-            'video/webm',
-            'video/wmv',
-            'video/3gpp'
-        ];
-        return supportedFormats.includes(mimeType);
-    }
-
-    formatTimestampFromMs(timestamp) {
-        try {
-            const date = new Date(timestamp);
-            return date.toLocaleString('en-US', {
-                timeZone: this.customTimezone,
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: false
-            }) + ` (${this.customTimezone})`;
-        } catch (error) {
-            logger.error('Error formatting timestamp from ms:', error);
-            return new Date(timestamp).toISOString();
+            logger.error('Error extracting message content:', error);
+            return '[Error processing message]';
         }
     }
 

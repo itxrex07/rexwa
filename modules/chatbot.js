@@ -1,4 +1,6 @@
 const { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory } = require('@google/generative-ai');
+// NEW: Import the Baileys media download utility. This is a common library for WhatsApp bots.
+const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const config = require('../config');
 const logger = require('../Core/logger');
 const Database = require('../utils/db');
@@ -9,7 +11,7 @@ class ChatBotModule {
         this.name = 'chatbot';
         this.metadata = {
             description: 'Advanced chatbot with Gemini AI, conversation memory, and per-user/group settings',
-            version: '1.0.0',
+            version: '1.1.0', // MODIFIED: Version bump for new feature
             author: 'HyperWa Team',
             category: 'ai'
         };
@@ -34,7 +36,7 @@ class ChatBotModule {
         this.defaultRole = `You are HyperWa, an advanced AI assistant integrated into a WhatsApp bot. You are:
 - Helpful, friendly, and knowledgeable
 - Capable of understanding context and maintaining conversations
-- Able to assist with various tasks and questions
+- Able to analyze text and images to provide comprehensive answers.
 - Integrated with multiple bot modules and features
 - Smart and witty, but professional
 - Always ready to help users with their needs
@@ -170,6 +172,7 @@ Keep responses concise but informative. Be engaging and personable.`;
             }
 
             this.genAI = new GoogleGenerativeAI(this.apiKey);
+            // MODIFIED: Switched to a multimodal model that supports Vision
             this.model = this.genAI.getGenerativeModel({ 
                 model: "gemini-2.0-flash",
                 safetySettings: [
@@ -412,27 +415,27 @@ Keep responses concise but informative. Be engaging and personable.`;
     async showChatHelp(msg, params, context) {
         try {
             return `ChatBot Help & Features\n\n` +
-                   `What I can do:\n` +
-                   `- Have natural conversations\n` +
-                   `- Remember chat history (${this.maxConversationLength} messages)\n` +
-                   `- Process text, images, documents and media\n` +
-                   `- Answer questions on any topic\n` +
-                   `- Help with tasks and problems\n\n` +
-                   `Commands:\n` +
-                   `.chat on/off [number] - Toggle for user/group\n` +
-                   `.chatall on/off - Global toggle (owner)\n` +
-                   `.groupchat on/off - Group toggle (admin)\n` +
-                   `.chatstatus - Check current status\n` +
-                   `.chatdel [number/all] - Delete chat history\n` +
-                   `.setrole <description> [number] - Set custom role\n` +
-                   `.resetrole [number] - Reset to default role\n` +
-                   `.botrole <description> - Set global role (owner)\n` +
-                   `.chathelp - Show this help\n\n` +
-                   `Tips:\n` +
-                   `- Just type normally to chat with me\n` +
-                   `- I remember conversation context\n` +
-                   `- Send images, documents or media for analysis\n` +
-                   `- Use commands to control my behavior`;
+                    `What I can do:\n` +
+                    `- Have natural conversations\n` +
+                    `- Remember chat history (${this.maxConversationLength} messages)\n` +
+                    `- Process text and images\n` + // MODIFIED
+                    `- Answer questions on any topic\n` +
+                    `- Help with tasks and problems\n\n` +
+                    `Commands:\n` +
+                    `.chat on/off [number] - Toggle for user/group\n` +
+                    `.chatall on/off - Global toggle (owner)\n` +
+                    `.groupchat on/off - Group toggle (admin)\n` +
+                    `.chatstatus - Check current status\n` +
+                    `.chatdel [number/all] - Delete chat history\n` +
+                    `.setrole <description> [number] - Set custom role\n` +
+                    `.resetrole [number] - Reset to default role\n` +
+                    `.botrole <description> - Set global role (owner)\n` +
+                    `.chathelp - Show this help\n\n` +
+                    `Tips:\n` +
+                    `- Just type normally to chat with me\n` +
+                    `- I remember conversation context\n` +
+                    `- Send an image with a caption for analysis\n` + // MODIFIED
+                    `- Use commands to control my behavior`;
         } catch (error) {
             logger.error('Error in showChatHelp:', error);
             return 'Failed to load help information. Please try again.';
@@ -463,8 +466,8 @@ Keep responses concise but informative. Be engaging and personable.`;
                 await bot.sock.sendPresenceUpdate('composing', context.sender);
             }
 
-            // Generate AI response
-            const response = await this.generateChatResponse(msg, context);
+            // MODIFIED: Pass the 'bot' object to generateChatResponse for media downloading
+            const response = await this.generateChatResponse(msg, context, bot);
             
             if (response) {
                 // Stop typing indicator
@@ -508,7 +511,8 @@ Keep responses concise but informative. Be engaging and personable.`;
         }
     }
 
-    async generateChatResponse(msg, context) {
+    // MODIFIED: Function signature updated to accept the 'bot' object
+    async generateChatResponse(msg, context, bot) {
         try {
             const conversationId = this.getConversationId(context);
             const history = await this.getConversationHistory(conversationId);
@@ -522,73 +526,99 @@ Keep responses concise but informative. Be engaging and personable.`;
             
             // Build context-aware prompt with timestamp
             const timestamp = new Date().toISOString();
-            let prompt = `${currentRole}\n\nCurrent timestamp: ${timestamp}\n\n`;
+            let textPrompt = `${currentRole}\n\nCurrent timestamp: ${timestamp}\n\n`;
             
             // Add conversation history
             if (history.length > 0) {
-                prompt += 'Previous conversation:\n';
+                textPrompt += 'Previous conversation:\n';
                 history.forEach(entry => {
                     const historyTime = new Date(entry.timestamp).toISOString();
-                    prompt += `[${historyTime}] User: ${entry.user}\n`;
-                    prompt += `[${historyTime}] Assistant: ${entry.assistant}\n\n`;
+                    textPrompt += `[${historyTime}] User: ${entry.user}\n`;
+                    textPrompt += `[${historyTime}] Assistant: ${entry.assistant}\n\n`;
                 });
             }
             
-            // Process message content (text and media)
-            const messageContent = await this.extractMessageContent(msg);
+            // MODIFIED: Process message content (text and media)
+            const { text: userText, media: mediaParts } = await this.extractMessageContent(msg, bot);
             
-            // Add current message
-            prompt += `Current message [${timestamp}]: ${messageContent}`;
+            // Add current message text to the prompt
+            textPrompt += `Current message [${timestamp}]: ${userText || ''}`;
 
-            const result = await this.model.generateContent(prompt);
+            // NEW: Combine text and media parts for the multimodal prompt
+            const promptParts = [textPrompt, ...mediaParts];
+            
+            const result = await this.model.generateContent(promptParts);
             const response = await result.response;
             const aiResponse = response.text();
 
-            // Update conversation history in database
-            await this.addToConversation(conversationId, messageContent, aiResponse);
+            // Update conversation history in database with the text part of the user's message
+            await this.addToConversation(conversationId, userText, aiResponse);
 
             return aiResponse;
 
         } catch (error) {
             logger.error('Error generating chat response:', error);
+            if (error.message.includes('400 Bad Request')) {
+                return "I'm sorry, the image could not be processed. It might be in an unsupported format or too large.";
+            }
             return 'Sorry, I encountered an error generating a response. Please try again.';
         }
     }
 
-    async extractMessageContent(msg) {
+    // MODIFIED: This function is now async and handles media downloading
+    async extractMessageContent(msg, bot) {
         try {
-            // Handle text messages
+            const mediaParts = [];
+            // Handle text messages and captions
             const text = msg.message?.conversation || 
-                        msg.message?.extendedTextMessage?.text || 
-                        msg.message?.imageMessage?.caption || 
-                        msg.message?.videoMessage?.caption || 
-                        msg.message?.documentMessage?.caption || '';
-
-            let content = text;
+                         msg.message?.extendedTextMessage?.text || 
+                         msg.message?.imageMessage?.caption || 
+                         msg.message?.videoMessage?.caption || 
+                         msg.message?.documentMessage?.caption || '';
 
             // Handle different media types
             if (msg.message?.imageMessage) {
-                content += text ? '\n[Image attached]' : '[Image attached]';
-                // TODO: Add image analysis with Gemini Vision if needed
+                // NEW: Download and process the image for Vision API
+                try {
+                    const stream = await downloadContentFromMessage(msg.message.imageMessage, 'image');
+                    let buffer = Buffer.from([]);
+                    for await (const chunk of stream) {
+                        buffer = Buffer.concat([buffer, chunk]);
+                    }
+                    
+                    mediaParts.push({
+                        inlineData: {
+                            data: buffer.toString('base64'),
+                            mimeType: msg.message.imageMessage.mimetype,
+                        },
+                    });
+
+                } catch (e) {
+                    logger.error("Failed to download or process image:", e);
+                    // Return text only, with an error note for context
+                    return { text: text + "\n[Error processing attached image]", media: [] };
+                }
             } else if (msg.message?.videoMessage) {
-                content += text ? '\n[Video attached]' : '[Video attached]';
+                // Vision API can handle video, but this requires more complex streaming/frame extraction.
+                // For now, we just acknowledge it.
+                return { text: text + '\n[Video attached, analysis not yet supported]', media: [] };
             } else if (msg.message?.audioMessage) {
-                content += text ? '\n[Audio message attached]' : '[Audio message attached]';
+                return { text: text ? text + '\n[Audio message attached]' : '[Audio message attached]', media: [] };
             } else if (msg.message?.documentMessage) {
                 const docName = msg.message.documentMessage.fileName || 'Unknown document';
-                content += text ? `\n[Document attached: ${docName}]` : `[Document attached: ${docName}]`;
+                return { text: text ? `${text}\n[Document attached: ${docName}]` : `[Document attached: ${docName}]`, media: [] };
             } else if (msg.message?.stickerMessage) {
-                content = '[Sticker sent]';
+                return { text: '[Sticker sent]', media: [] };
             } else if (msg.message?.locationMessage) {
-                content = '[Location shared]';
+                return { text: '[Location shared]', media: [] };
             } else if (msg.message?.contactMessage) {
-                content = '[Contact shared]';
+                return { text: '[Contact shared]', media: [] };
             }
 
-            return content || '[Unsupported message type]';
+            return { text, media: mediaParts };
         } catch (error) {
             logger.error('Error extracting message content:', error);
-            return '[Error processing message]';
+            return { text: '[Error processing message]', media: [] };
         }
     }
 

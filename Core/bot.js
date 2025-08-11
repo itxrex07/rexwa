@@ -26,29 +26,21 @@ class HyperWaBot {
         this.qrCodeSent = false;
         this.useMongoAuth = config.get('auth.useMongoAuth', false);
         
-    // Enhanced store with better memory management for high load
-    this.store = makeInMemoryStore({
-        logger: logger.child({ module: 'store' }),
-        filePath: config.get('store.filePath', './whatsapp-store.json'),
-        autoSaveInterval: config.get('store.autoSaveInterval', 60000), // Increased to 1 minute
-        // Add message retention limits for high-load scenarios
-        maxMessagesPerChat: config.get('store.maxMessagesPerChat', 1000),
-        maxChatsInMemory: config.get('store.maxChatsInMemory', 500)
-    });
+        // Initialize the enhanced store with advanced options
+        this.store = makeInMemoryStore({
+            logger: logger.child({ module: 'store' }),
+            filePath: config.get('store.filePath', './whatsapp-store.json'),
+            autoSaveInterval: config.get('store.autoSaveInterval', 30000) // Save every 30 seconds
+        });
 
-    // Enhanced message caching for high concurrent load
-    this.msgRetryCounterCache = new NodeCache({
-        stdTTL: 600, // 10 minutes (increased from 5)
-        maxKeys: 2000, // Increased capacity
-        checkperiod: 120, // Check for expired keys every 2 minutes
-        useClones: false // Better performance for large objects
-    });
-
-    // Add message backup cache specifically for command handling
-    this.messageBackupCache = new NodeCache({
-        stdTTL: 300, // 5 minutes
-        maxKeys: 1000
-    });
+        // Load existing store data on startup
+        this.store.loadFromFile();
+        
+        // Enhanced features from example - SIMPLE VERSION
+        this.msgRetryCounterCache = new NodeCache({
+            stdTTL: 300,
+            maxKeys: 500
+        });
         this.onDemandMap = new Map();
         this.autoReply = config.get('features.autoReply', false);
         this.enableTypingIndicators = config.get('features.typingIndicators', true);
@@ -257,7 +249,6 @@ async getMessage(key) {
         };
     }
 }
-
 
     // Store-powered helper methods
     
@@ -518,35 +509,23 @@ async getMessage(key) {
         }
     }
 
-   async handleMessagesUpsert(upsert) {
-    if (upsert.type === 'notify') {
-        for (const msg of upsert.messages) {
-            try {
-                // Cache the message immediately for command processing
-                if (msg.key?.id) {
-                    this.messageBackupCache.set(`msg_${msg.key.id}`, msg);
-                    this.msgRetryCounterCache.set(`msg_${msg.key.id}`, msg);
+    async handleMessagesUpsert(upsert) {
+        if (upsert.type === 'notify') {
+            for (const msg of upsert.messages) {
+                try {
+                    await this.processIncomingMessage(msg, upsert);
+                } catch (error) {
+                    logger.warn('⚠️ Message processing error:', error.message);
                 }
-                
-                await this.processIncomingMessage(msg, upsert);
-            } catch (error) {
-                logger.warn('⚠️ Message processing error:', error.message);
             }
         }
-    }
 
-    // Process through message handler with error isolation
-    try {
-        await this.messageHandler.handleMessages({ 
-            messages: upsert.messages, 
-            type: upsert.type 
-        });
-    } catch (error) {
-        logger.error('⚠️ Message handler critical error:', error.message);
-        // Don't let handler errors crash the entire bot
+        try {
+            await this.messageHandler.handleMessages({ messages: upsert.messages, type: upsert.type });
+        } catch (error) {
+            logger.warn('⚠️ Original message handler error:', error.message);
+        }
     }
-}
-
 
     async processIncomingMessage(msg, upsert) {
         const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;

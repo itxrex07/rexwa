@@ -1,5 +1,4 @@
 const { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory } = require('@google/generative-ai');
-// NEW: Import the Baileys media download utility. This is a common library for WhatsApp bots.
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const config = require('../config');
 const logger = require('../Core/logger');
@@ -11,7 +10,7 @@ class ChatBotModule {
         this.name = 'chatbot';
         this.metadata = {
             description: 'Advanced chatbot with Gemini AI, conversation memory, and per-user/group settings',
-            version: '1.1.0', // MODIFIED: Version bump for new feature
+            version: '1.2.0',
             author: 'HyperWa Team',
             category: 'ai'
         };
@@ -165,6 +164,10 @@ Keep responses concise but informative. Be engaging and personable.`;
             await this.collection.createIndex({ userId: 1 });
             await this.collection.createIndex({ groupId: 1 });
             await this.collection.createIndex({ conversationId: 1 });
+            await this.collection.createIndex({ type: 1 });
+            
+            // Load settings from database
+            await this.loadSettingsFromDb();
             
             if (!this.apiKey || this.apiKey === "YOUR_GEMINI_API_KEY") {
                 logger.error('Gemini API key is missing for ChatBot module');
@@ -172,7 +175,6 @@ Keep responses concise but informative. Be engaging and personable.`;
             }
 
             this.genAI = new GoogleGenerativeAI(this.apiKey);
-            // MODIFIED: Switched to a multimodal model that supports Vision
             this.model = this.genAI.getGenerativeModel({ 
                 model: "gemini-2.0-flash",
                 safetySettings: [
@@ -186,6 +188,60 @@ Keep responses concise but informative. Be engaging and personable.`;
         } catch (error) {
             logger.error('Failed to initialize ChatBot module:', error);
             throw error;
+        }
+    }
+
+    async loadSettingsFromDb() {
+        try {
+            const settings = await this.collection.findOne({ type: 'globalSettings' });
+            if (settings) {
+                this.globalChatEnabled = settings.globalChatEnabled || false;
+            }
+            
+            const userSettings = await this.collection.find({ type: 'userSettings' }).toArray();
+            for (const setting of userSettings) {
+                this.userChatSettings.set(setting.userId, setting.enabled);
+            }
+            
+            const groupSettings = await this.collection.find({ type: 'groupSettings' }).toArray();
+            for (const setting of groupSettings) {
+                this.groupChatSettings.set(setting.groupId, setting.enabled);
+            }
+            
+            logger.info('✅ Loaded chatbot settings from database');
+        } catch (error) {
+            logger.error('❌ Error loading chatbot settings:', error);
+        }
+    }
+
+    async saveSettingsToDb() {
+        try {
+            // Save global settings
+            await this.collection.updateOne(
+                { type: 'globalSettings' },
+                { $set: { globalChatEnabled: this.globalChatEnabled, updatedAt: new Date() } },
+                { upsert: true }
+            );
+            
+            // Save user settings
+            for (const [userId, enabled] of this.userChatSettings) {
+                await this.collection.updateOne(
+                    { type: 'userSettings', userId },
+                    { $set: { enabled, updatedAt: new Date() } },
+                    { upsert: true }
+                );
+            }
+            
+            // Save group settings
+            for (const [groupId, enabled] of this.groupChatSettings) {
+                await this.collection.updateOne(
+                    { type: 'groupSettings', groupId },
+                    { $set: { enabled, updatedAt: new Date() } },
+                    { upsert: true }
+                );
+            }
+        } catch (error) {
+            logger.error('❌ Error saving chatbot settings:', error);
         }
     }
 
@@ -209,17 +265,20 @@ Keep responses concise but informative. Be engaging and personable.`;
                 }
 
                 this.userChatSettings.set(userId, enabled);
+                await this.saveSettingsToDb();
                 return `Chat ${enabled ? 'Enabled' : 'Disabled'} for +${userId}`;
 
             } else if (isGroup) {
                 // Toggle for current group
                 this.groupChatSettings.set(context.sender, enabled);
+                await this.saveSettingsToDb();
                 return `Group Chat ${enabled ? 'Enabled' : 'Disabled'}`;
 
             } else {
                 // Toggle for current user
                 const userId = context.participant.split('@')[0];
                 this.userChatSettings.set(userId, enabled);
+                await this.saveSettingsToDb();
                 return `Chat ${enabled ? 'Enabled' : 'Disabled'}`;
             }
         } catch (error) {
@@ -237,6 +296,7 @@ Keep responses concise but informative. Be engaging and personable.`;
             }
 
             this.globalChatEnabled = action === 'on';
+            await this.saveSettingsToDb();
             return `Global Chat ${this.globalChatEnabled ? 'Enabled' : 'Disabled'}`;
         } catch (error) {
             logger.error('Error in toggleGlobalChat:', error);
@@ -259,6 +319,7 @@ Keep responses concise but informative. Be engaging and personable.`;
 
             const enabled = action === 'on';
             this.groupChatSettings.set(context.sender, enabled);
+            await this.saveSettingsToDb();
             return `Group Chat ${enabled ? 'Enabled' : 'Disabled'}`;
         } catch (error) {
             logger.error('Error in toggleGroupChat:', error);
@@ -418,7 +479,7 @@ Keep responses concise but informative. Be engaging and personable.`;
                     `What I can do:\n` +
                     `- Have natural conversations\n` +
                     `- Remember chat history (${this.maxConversationLength} messages)\n` +
-                    `- Process text and images\n` + // MODIFIED
+                    `- Process text, images, videos, and audio\n` +
                     `- Answer questions on any topic\n` +
                     `- Help with tasks and problems\n\n` +
                     `Commands:\n` +
@@ -434,7 +495,7 @@ Keep responses concise but informative. Be engaging and personable.`;
                     `Tips:\n` +
                     `- Just type normally to chat with me\n` +
                     `- I remember conversation context\n` +
-                    `- Send an image with a caption for analysis\n` + // MODIFIED
+                    `- Send media (image/video/audio) with text for analysis\n` +
                     `- Use commands to control my behavior`;
         } catch (error) {
             logger.error('Error in showChatHelp:', error);
@@ -460,31 +521,51 @@ Keep responses concise but informative. Be engaging and personable.`;
         if (!this.shouldRespondToChat(context)) return;
 
         try {
-            // Show typing indicator
-            if (bot.sock && bot.enableTypingIndicators) {
+            // Show typing indicator and presence
+            if (bot.sock) {
                 await bot.sock.presenceSubscribe(context.sender);
-                await bot.sock.sendPresenceUpdate('composing', context.sender);
+                if (bot.enableTypingIndicators) {
+                    await bot.sock.sendPresenceUpdate('composing', context.sender);
+                }
             }
 
-            // MODIFIED: Pass the 'bot' object to generateChatResponse for media downloading
             const response = await this.generateChatResponse(msg, context, bot);
             
             if (response) {
-                // Stop typing indicator
-                if (bot.sock && bot.enableTypingIndicators) {
-                    await bot.sock.sendPresenceUpdate('paused', context.sender);
+                // Stop typing indicator and update presence
+                if (bot.sock) {
+                    if (bot.enableTypingIndicators) {
+                        await bot.sock.sendPresenceUpdate('paused', context.sender);
+                    }
+                    // Update presence to available after responding
+                    await bot.sock.sendPresenceUpdate('available', context.sender);
                 }
                 
                 // Send response
-                await bot.sendMessage(context.sender, { text: response });
+                const result = await bot.sendMessage(context.sender, { text: response });
+                
+                // Send read receipt after successful response
+                if (result && bot.autoReadMessages) {
+                    try {
+                        await bot.sock.readMessages([msg.key]);
+                    } catch (error) {
+                        logger.debug('Read receipt failed (non-critical):', error.message);
+                    }
+                }
+            } else {
+                // Update presence even if no response
+                if (bot.sock) {
+                    await bot.sock.sendPresenceUpdate('paused', context.sender);
+                }
             }
 
         } catch (error) {
             logger.error('ChatBot response error:', error);
-            // Stop typing indicator on error
-            if (bot.sock && bot.enableTypingIndicators) {
+            // Stop typing indicator and update presence on error
+            if (bot.sock) {
                 try {
                     await bot.sock.sendPresenceUpdate('paused', context.sender);
+                    await bot.sock.sendPresenceUpdate('available', context.sender);
                 } catch {}
             }
         }
@@ -511,7 +592,6 @@ Keep responses concise but informative. Be engaging and personable.`;
         }
     }
 
-    // MODIFIED: Function signature updated to accept the 'bot' object
     async generateChatResponse(msg, context, bot) {
         try {
             const conversationId = this.getConversationId(context);
@@ -538,13 +618,11 @@ Keep responses concise but informative. Be engaging and personable.`;
                 });
             }
             
-            // MODIFIED: Process message content (text and media)
             const { text: userText, media: mediaParts } = await this.extractMessageContent(msg, bot);
             
             // Add current message text to the prompt
             textPrompt += `Current message [${timestamp}]: ${userText || ''}`;
 
-            // NEW: Combine text and media parts for the multimodal prompt
             const promptParts = [textPrompt, ...mediaParts];
             
             const result = await this.model.generateContent(promptParts);
@@ -559,13 +637,12 @@ Keep responses concise but informative. Be engaging and personable.`;
         } catch (error) {
             logger.error('Error generating chat response:', error);
             if (error.message.includes('400 Bad Request')) {
-                return "I'm sorry, the image could not be processed. It might be in an unsupported format or too large.";
+                return "I'm sorry, the media could not be processed. It might be in an unsupported format or too large.";
             }
             return 'Sorry, I encountered an error generating a response. Please try again.';
         }
     }
 
-    // MODIFIED: This function is now async and handles media downloading
     async extractMessageContent(msg, bot) {
         try {
             const mediaParts = [];
@@ -574,11 +651,11 @@ Keep responses concise but informative. Be engaging and personable.`;
                          msg.message?.extendedTextMessage?.text || 
                          msg.message?.imageMessage?.caption || 
                          msg.message?.videoMessage?.caption || 
+                         msg.message?.audioMessage?.caption ||
                          msg.message?.documentMessage?.caption || '';
 
             // Handle different media types
             if (msg.message?.imageMessage) {
-                // NEW: Download and process the image for Vision API
                 try {
                     const stream = await downloadContentFromMessage(msg.message.imageMessage, 'image');
                     let buffer = Buffer.from([]);
@@ -595,15 +672,46 @@ Keep responses concise but informative. Be engaging and personable.`;
 
                 } catch (e) {
                     logger.error("Failed to download or process image:", e);
-                    // Return text only, with an error note for context
                     return { text: text + "\n[Error processing attached image]", media: [] };
                 }
             } else if (msg.message?.videoMessage) {
-                // Vision API can handle video, but this requires more complex streaming/frame extraction.
-                // For now, we just acknowledge it.
-                return { text: text + '\n[Video attached, analysis not yet supported]', media: [] };
+                try {
+                    const stream = await downloadContentFromMessage(msg.message.videoMessage, 'video');
+                    let buffer = Buffer.from([]);
+                    for await (const chunk of stream) {
+                        buffer = Buffer.concat([buffer, chunk]);
+                    }
+                    
+                    mediaParts.push({
+                        inlineData: {
+                            data: buffer.toString('base64'),
+                            mimeType: msg.message.videoMessage.mimetype || 'video/mp4',
+                        },
+                    });
+
+                } catch (e) {
+                    logger.error("Failed to download or process video:", e);
+                    return { text: text + '\n[Error processing attached video]', media: [] };
+                }
             } else if (msg.message?.audioMessage) {
-                return { text: text ? text + '\n[Audio message attached]' : '[Audio message attached]', media: [] };
+                try {
+                    const stream = await downloadContentFromMessage(msg.message.audioMessage, 'audio');
+                    let buffer = Buffer.from([]);
+                    for await (const chunk of stream) {
+                        buffer = Buffer.concat([buffer, chunk]);
+                    }
+                    
+                    mediaParts.push({
+                        inlineData: {
+                            data: buffer.toString('base64'),
+                            mimeType: msg.message.audioMessage.mimetype || 'audio/ogg',
+                        },
+                    });
+
+                } catch (e) {
+                    logger.error("Failed to download or process audio:", e);
+                    return { text: text + '\n[Error processing attached audio]', media: [] };
+                }
             } else if (msg.message?.documentMessage) {
                 const docName = msg.message.documentMessage.fileName || 'Unknown document';
                 return { text: text ? `${text}\n[Document attached: ${docName}]` : `[Document attached: ${docName}]`, media: [] };
@@ -709,10 +817,7 @@ Keep responses concise but informative. Be engaging and personable.`;
         }
     }
 
-    // Optional: Cleanup on unload
-    async destroy() {
-        logger.info('ChatBot module destroyed');
-    }
+
 }
 
 module.exports = ChatBotModule;

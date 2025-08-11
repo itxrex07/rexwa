@@ -1,3 +1,4 @@
+
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, getAggregateVotesInPollMessage, isJidNewsletter, delay, proto } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs-extra');
@@ -203,52 +204,19 @@ class HyperWaBot {
     }
 
     // Enhanced getMessage with store lookup
-async getMessage(key) {
-    try {
-        // Enhanced store lookup with multiple fallback strategies
+    async getMessage(key) {
+        // Try to get message from store first
         if (key?.remoteJid && key?.id) {
-            // Primary: Try store lookup
             const storedMessage = this.store.loadMessage(key.remoteJid, key.id);
             if (storedMessage) {
                 logger.debug(`📨 Retrieved message from store: ${key.id}`);
                 return storedMessage;
             }
-
-            // Fallback 1: Try direct socket fetch (if connected)
-            if (this.sock && this.sock.user) {
-                try {
-                    const directMessage = await this.sock.loadMessage(key.remoteJid, key.id);
-                    if (directMessage) {
-                        logger.debug(`📨 Retrieved message directly: ${key.id}`);
-                        return directMessage;
-                    }
-                } catch (directError) {
-                    logger.debug(`Direct fetch failed for ${key.id}: ${directError.message}`);
-                }
-            }
-
-            // Fallback 2: Check message cache (if exists)
-            if (this.msgRetryCounterCache) {
-                const cachedMsg = this.msgRetryCounterCache.get(`msg_${key.id}`);
-                if (cachedMsg) {
-                    logger.debug(`📨 Retrieved message from retry cache: ${key.id}`);
-                    return cachedMsg;
-                }
-            }
         }
-
-        // Final fallback: Return a minimal valid message structure
-        logger.warn(`📨 Message not found, using fallback: ${key?.id || 'unknown'}`);
-        return {
-            conversation: "Message content unavailable"
-        };
-    } catch (error) {
-        logger.error(`❌ getMessage error for ${key?.id}: ${error.message}`);
-        return {
-            conversation: "Error retrieving message"
-        };
+        
+        // Fallback to empty message
+        return proto.Message.fromObject({ conversation: 'Message not found' });
     }
-}
 
     // Store-powered helper methods
     

@@ -223,10 +223,6 @@ class DownloaderModule {
                     await this._downloadAndSendMedia(msg, item.url, `🎥 Instagram Video ${i + 1}`, 'video', context);
                 }
             }
-
-            await context.bot.sendMessage(context.sender, {
-                text: `✅ Downloaded ${media.length} Instagram media file(s)`
-            });
             
         } catch (error) {
             await context.bot.sendMessage(context.sender, {

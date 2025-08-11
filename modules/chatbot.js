@@ -456,52 +456,38 @@ Keep responses concise but informative. Be engaging and personable.`;
         }
     }
 
-    getFormattedTimestamp() {
-        try {
-            const now = new Date();
-            return now.toLocaleString('en-US', {
-                timeZone: this.customTimezone,
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: false
-            }) + ` (${this.customTimezone})`;
-        } catch (error) {
-            logger.error('Error formatting timestamp:', error);
-            return new Date().toISOString();
-        }
+getFormattedTimestamp() {
+    try {
+        const now = new Date();
+        return now.toLocaleString('en-US', {
+            timeZone: this.customTimezone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        }) + ` (${this.customTimezone})`;
+    } catch (error) {
+        logger.error('Error formatting timestamp:', error);
+        return new Date().toISOString();
     }
-        try {
-            return `ChatBot Help & Features\n\n` +
-                   `What I can do:\n` +
-                   `- Have natural conversations\n` +
-                   `- Remember chat history (${this.maxConversationLength} messages)\n` +
-                   `- Process text, images, documents and media\n` +
-                   `- Answer questions on any topic\n` +
-                   `- Help with tasks and problems\n\n` +
-                   `Commands:\n` +
-                   `.chat on/off [number] - Toggle for user/group\n` +
-                   `.chatall on/off - Global toggle (owner)\n` +
-                   `.groupchat on/off - Group toggle (admin)\n` +
-                   `.chatstatus - Check current status\n` +
-                   `.chatdel [number/all] - Delete chat history\n` +
-                   `.setrole <description> [number] - Set custom role\n` +
-                   `.resetrole [number] - Reset to default role\n` +
-                   `.botrole <description> - Set global role (owner)\n` +
-                   `.chathelp - Show this help\n\n` +
-                   `Tips:\n` +
-                   `- Just type normally to chat with me\n` +
-                   `- I remember conversation context\n` +
-                   `- Send images, documents or media for analysis\n` +
-                   `- Use commands to control my behavior`;
-        } catch (error) {
-            logger.error('Error in showChatHelp:', error);
-            return 'Failed to load help information. Please try again.';
-        }
+}showChatHelp() {
+    try {
+        return `ChatBot Help & Features\n\n` +
+               `What I can do:\n` +
+               `- Have natural conversations\n` +
+               `- Answer questions on various topics\n` +
+               `- Provide weather updates\n` +
+               `- Translate text\n` +
+               `- And much more...\n\n` +
+               `Type a command or ask me something to get started!`;
+    } catch (error) {
+        logger.error('Error generating help text:', error);
+        return 'Unable to display help at the moment.';
     }
+}
 
     async handleChatMessage(msg, text, bot) {
         // Skip if it's a command

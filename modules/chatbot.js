@@ -30,7 +30,7 @@ class ChatBotModule {
         this.conversations = new Map(); // userId/groupId -> conversation history
         this.maxConversationLength = 20;
 
-        // Bot default role (renamed from personality)
+        // Bot default role
         this.defaultRole = `You are HyperWa, an advanced AI assistant integrated into a WhatsApp bot. You are:
 - Helpful, friendly, and knowledgeable
 - Capable of understanding context and maintaining conversations
@@ -39,18 +39,18 @@ class ChatBotModule {
 - Smart and witty, but professional
 - Always ready to help users with their needs
 
-Keep responses concise but informative. Use emojis appropriately. Be engaging and personable.`;
+Keep responses concise but informative. Be engaging and personable.`;
 
         this.commands = [
             {
                 name: 'chat',
                 description: 'Toggle chatbot for user/group or globally',
-                usage: '.chat on/off [user_number] OR .chat on/off (in group)',
+                usage: '.chat on/off [user_number]',
                 aliases: ['c'],
                 permissions: 'admin',
                 ui: {
-                    processingText: '⏳ *Processing Chat Toggle...*\n\n🔄 Updating settings...',
-                    errorText: '❌ *Chat Toggle Failed*'
+                    processingText: 'Processing Chat Toggle...',
+                    errorText: 'Chat Toggle Failed'
                 },
                 execute: this.toggleChat.bind(this)
             },
@@ -60,8 +60,8 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 usage: '.chatall on/off',
                 permissions: 'owner',
                 ui: {
-                    processingText: '⏳ *Processing Global Chat...*\n\n🌐 Updating global settings...',
-                    errorText: '❌ *Global Chat Toggle Failed*'
+                    processingText: 'Processing Global Chat...',
+                    errorText: 'Global Chat Toggle Failed'
                 },
                 execute: this.toggleGlobalChat.bind(this)
             },
@@ -72,8 +72,8 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 aliases: ['gc'],
                 permissions: 'admin',
                 ui: {
-                    processingText: '⏳ *Processing Group Chat...*\n\n👥 Updating group settings...',
-                    errorText: '❌ *Group Chat Toggle Failed*'
+                    processingText: 'Processing Group Chat...',
+                    errorText: 'Group Chat Toggle Failed'
                 },
                 execute: this.toggleGroupChat.bind(this)
             },
@@ -83,68 +83,56 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 usage: '.chatstatus',
                 permissions: 'public',
                 ui: {
-                    processingText: '⏳ *Checking Status...*\n\n📊 Gathering information...',
-                    errorText: '❌ *Status Check Failed*'
+                    processingText: 'Checking Status...',
+                    errorText: 'Status Check Failed'
                 },
                 execute: this.getChatStatus.bind(this)
             },
             {
-                name: 'clearchat',
-                description: 'Clear conversation history',
-                usage: '.clearchat',
-                permissions: 'public',
+                name: 'chatdel',
+                description: 'Delete conversation history',
+                usage: '.chatdel [user_number] OR .chatdel all',
+                permissions: 'admin',
                 ui: {
-                    processingText: '⏳ *Clearing Chat...*\n\n🧹 Removing conversation history...',
-                    errorText: '❌ *Clear Chat Failed*'
+                    processingText: 'Deleting Chat History...',
+                    errorText: 'Delete Chat Failed'
                 },
-                execute: this.clearConversation.bind(this)
+                execute: this.deleteChatHistory.bind(this)
             },
             {
-                name: 'setpersonality',
-                description: 'Set bot personality/role (owner only)',
-                usage: '.setpersonality <personality_description>',
-                aliases: ['setp'],
+                name: 'botrole',
+                description: 'Set global bot role (owner only)',
+                usage: '.botrole <role_description>',
                 permissions: 'owner',
                 ui: {
-                    processingText: '⏳ *Setting Global Personality...*\n\n🤖 Updating AI personality...',
-                    errorText: '❌ *Personality Update Failed*'
+                    processingText: 'Setting Global Role...',
+                    errorText: 'Role Update Failed'
                 },
-                execute: this.setPersonality.bind(this)
+                execute: this.setBotRole.bind(this)
             },
             {
                 name: 'setrole',
-                description: 'Set bot role for yourself or group',
-                usage: '.setrole <role_description>',
+                description: 'Set bot role for yourself or specific user',
+                usage: '.setrole <role_description> [user_number]',
                 aliases: ['role'],
                 permissions: 'public',
                 ui: {
-                    processingText: '⏳ *Setting Personal Role...*\n\n🎭 Updating your custom role...',
-                    errorText: '❌ *Role Update Failed*'
+                    processingText: 'Setting Personal Role...',
+                    errorText: 'Role Update Failed'
                 },
                 execute: this.setPersonalRole.bind(this)
             },
             {
                 name: 'resetrole',
                 description: 'Reset to default role',
-                usage: '.resetrole',
+                usage: '.resetrole [user_number]',
                 aliases: ['rr'],
                 permissions: 'public',
                 ui: {
-                    processingText: '⏳ *Resetting Role...*\n\n🔄 Restoring default role...',
-                    errorText: '❌ *Role Reset Failed*'
+                    processingText: 'Resetting Role...',
+                    errorText: 'Role Reset Failed'
                 },
                 execute: this.resetPersonalRole.bind(this)
-            },
-            {
-                name: 'myrole',
-                description: 'Show your current role',
-                usage: '.myrole',
-                permissions: 'public',
-                ui: {
-                    processingText: '⏳ *Checking Role...*\n\n👤 Getting your role info...',
-                    errorText: '❌ *Role Check Failed*'
-                },
-                execute: this.showPersonalRole.bind(this)
             },
             {
                 name: 'chathelp',
@@ -152,8 +140,8 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 usage: '.chathelp',
                 permissions: 'public',
                 ui: {
-                    processingText: '⏳ *Loading Help...*\n\n📚 Preparing help information...',
-                    errorText: '❌ *Help Load Failed*'
+                    processingText: 'Loading Help...',
+                    errorText: 'Help Load Failed'
                 },
                 execute: this.showChatHelp.bind(this)
             }
@@ -177,7 +165,7 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
             await this.collection.createIndex({ conversationId: 1 });
             
             if (!this.apiKey || this.apiKey === "YOUR_GEMINI_API_KEY") {
-                logger.error('❌ Gemini API key is missing for ChatBot module');
+                logger.error('Gemini API key is missing for ChatBot module');
                 throw new Error('Gemini API key not configured');
             }
 
@@ -192,9 +180,8 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 ]
             });
 
-            logger.info('✅ ChatBot module initialized with Gemini 2.0 Flash and Database');
         } catch (error) {
-            logger.error('❌ Failed to initialize ChatBot module:', error);
+            logger.error('Failed to initialize ChatBot module:', error);
             throw error;
         }
     }
@@ -215,26 +202,26 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
                 // Toggle for specific user
                 const userId = targetUser.replace(/[^\d]/g, '');
                 if (!userId) {
-                    return '❌ Invalid user number format.\n\nPlease provide a valid phone number.';
+                    return 'Invalid user number format. Please provide a valid phone number.';
                 }
 
                 this.userChatSettings.set(userId, enabled);
-                return `💬 *Chat ${enabled ? 'Enabled' : 'Disabled'}*\n\nUser: +${userId}\nStatus: ${enabled ? '✅ Active' : '❌ Inactive'}`;
+                return `Chat ${enabled ? 'Enabled' : 'Disabled'} for +${userId}`;
 
             } else if (isGroup) {
                 // Toggle for current group
                 this.groupChatSettings.set(context.sender, enabled);
-                return `💬 *Group Chat ${enabled ? 'Enabled' : 'Disabled'}*\n\n${enabled ? 'I\'ll now respond to messages in this group! 🎉' : 'I\'ll stop responding to messages in this group. 😴'}`;
+                return `Group Chat ${enabled ? 'Enabled' : 'Disabled'}`;
 
             } else {
                 // Toggle for current user
                 const userId = context.participant.split('@')[0];
                 this.userChatSettings.set(userId, enabled);
-                return `💬 *Chat ${enabled ? 'Enabled' : 'Disabled'}*\n\n${enabled ? 'I\'ll now respond to your messages! 🎉' : 'I\'ll stop responding to your messages. 😴'}`;
+                return `Chat ${enabled ? 'Enabled' : 'Disabled'}`;
             }
         } catch (error) {
             logger.error('Error in toggleChat:', error);
-            return '❌ Failed to toggle chat settings. Please try again.';
+            return 'Failed to toggle chat settings. Please try again.';
         }
     }
 
@@ -243,40 +230,36 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
             const action = params[0]?.toLowerCase();
 
             if (!action || !['on', 'off'].includes(action)) {
-                return `🌐 *Global Chat Status*\n\nCurrent: ${this.globalChatEnabled ? '✅ ENABLED' : '❌ DISABLED'}\n\n💡 Usage: \`.chatall on/off\``;
+                return `Global Chat Status: ${this.globalChatEnabled ? 'ENABLED' : 'DISABLED'}\n\nUsage: .chatall on/off`;
             }
 
             this.globalChatEnabled = action === 'on';
-
-            return `🌐 *Global Chat ${this.globalChatEnabled ? 'Enabled' : 'Disabled'}*\n\n` +
-                   `${this.globalChatEnabled ? 'I\'ll now respond to all users by default! 🌟' : 'Global chat disabled. Individual settings will be used. ⚙️'}`;
+            return `Global Chat ${this.globalChatEnabled ? 'Enabled' : 'Disabled'}`;
         } catch (error) {
             logger.error('Error in toggleGlobalChat:', error);
-            return '❌ Failed to toggle global chat. Please try again.';
+            return 'Failed to toggle global chat. Please try again.';
         }
     }
 
     async toggleGroupChat(msg, params, context) {
         try {
             if (!context.sender.endsWith('@g.us')) {
-                return '❌ *Group Only Command*\n\nThis command can only be used in group chats.';
+                return 'This command can only be used in group chats.';
             }
 
             const action = params[0]?.toLowerCase();
 
             if (!action || !['on', 'off'].includes(action)) {
                 const currentStatus = this.groupChatSettings.get(context.sender) || false;
-                return `👥 *Group Chat Status*\n\nCurrent: ${currentStatus ? '✅ ENABLED' : '❌ DISABLED'}\n\n💡 Usage: \`.groupchat on/off\``;
+                return `Group Chat Status: ${currentStatus ? 'ENABLED' : 'DISABLED'}\n\nUsage: .groupchat on/off`;
             }
 
             const enabled = action === 'on';
             this.groupChatSettings.set(context.sender, enabled);
-
-            return `👥 *Group Chat ${enabled ? 'Enabled' : 'Disabled'}*\n\n` +
-                   `${enabled ? 'I\'ll now participate in group conversations! 🎉' : 'I\'ll stop responding in this group. 😴'}`;
+            return `Group Chat ${enabled ? 'Enabled' : 'Disabled'}`;
         } catch (error) {
             logger.error('Error in toggleGroupChat:', error);
-            return '❌ Failed to toggle group chat. Please try again.';
+            return 'Failed to toggle group chat. Please try again.';
         }
     }
 
@@ -285,168 +268,180 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
             const isGroup = context.sender.endsWith('@g.us');
             const userId = context.participant.split('@')[0];
 
-            let status = `💬 *ChatBot Status Report*\n\n`;
-            status += `🌐 Global Chat: ${this.globalChatEnabled ? '✅ Enabled' : '❌ Disabled'}\n`;
+            let status = `ChatBot Status Report\n\n`;
+            status += `Global Chat: ${this.globalChatEnabled ? 'ENABLED' : 'DISABLED'}\n`;
 
             if (isGroup) {
                 const groupEnabled = this.groupChatSettings.get(context.sender) || false;
-                status += `👥 This Group: ${groupEnabled ? '✅ Enabled' : '❌ Disabled'}\n`;
+                status += `This Group: ${groupEnabled ? 'ENABLED' : 'DISABLED'}\n`;
             }
 
             const userEnabled = this.userChatSettings.get(userId);
             const userStatus = userEnabled !== undefined ? userEnabled : this.globalChatEnabled;
-            status += `👤 Your Chat: ${userStatus ? '✅ Enabled' : '❌ Disabled'}\n`;
+            status += `Your Chat: ${userStatus ? 'ENABLED' : 'DISABLED'}\n`;
 
-            status += `\n📊 *Statistics:*\n`;
-            status += `• Active Users: ${[...this.userChatSettings.values()].filter(Boolean).length}\n`;
-            status += `• Active Groups: ${[...this.groupChatSettings.values()].filter(Boolean).length}\n`;
-            status += `• Active Conversations: ${this.conversations.size}\n`;
+            status += `\nStatistics:\n`;
+            status += `Active Users: ${[...this.userChatSettings.values()].filter(Boolean).length}\n`;
+            status += `Active Groups: ${[...this.groupChatSettings.values()].filter(Boolean).length}\n`;
+            status += `Active Conversations: ${this.conversations.size}\n`;
 
             const willRespond = this.shouldRespondToChat(context);
-            status += `\n🤖 *Will I respond to you?* ${willRespond ? '✅ Yes' : '❌ No'}`;
+            status += `\nWill I respond to you? ${willRespond ? 'YES' : 'NO'}`;
 
             return status;
         } catch (error) {
             logger.error('Error in getChatStatus:', error);
-            return '❌ Failed to get chat status. Please try again.';
+            return 'Failed to get chat status. Please try again.';
         }
     }
 
-    async clearConversation(msg, params, context) {
+    async deleteChatHistory(msg, params, context) {
         try {
-            const conversationId = this.getConversationId(context);
-            const result = await this.collection.deleteOne({ conversationId });
-            
-            if (result.deletedCount > 0) {
-                return `🧹 *Conversation Cleared Successfully*\n\nYour chat history has been reset. Starting fresh! 🌟`;
+            const target = params[0];
+
+            if (target === 'all') {
+                // Delete all conversation histories
+                const result = await this.collection.deleteMany({ type: { $ne: 'personalRole' } });
+                this.conversations.clear();
+                return `Deleted chat history for all users (${result.deletedCount} records)`;
+            } else if (target && /^\d+$/.test(target)) {
+                // Delete for specific user
+                const userId = target.replace(/[^\d]/g, '');
+                const conversationId = `user_${userId}`;
+                const result = await this.collection.deleteOne({ conversationId });
+                this.conversations.delete(conversationId);
+                return `Deleted chat history for +${userId} (${result.deletedCount} records)`;
             } else {
-                return `🧹 *No Conversation Found*\n\nThere was no existing conversation history to clear. Ready for a fresh start! 🌟`;
+                // Delete for current user/group
+                const conversationId = this.getConversationId(context);
+                const result = await this.collection.deleteOne({ conversationId });
+                this.conversations.delete(conversationId);
+                return `Chat history deleted (${result.deletedCount} records)`;
             }
         } catch (error) {
-            logger.error('Error in clearConversation:', error);
-            return '❌ Failed to clear conversation. Please try again.';
+            logger.error('Error in deleteChatHistory:', error);
+            return 'Failed to delete chat history. Please try again.';
         }
     }
 
-    async setPersonality(msg, params, context) {
+    async setBotRole(msg, params, context) {
         try {
             if (params.length === 0) {
-                return `🤖 *Current Global Role:*\n\n${this.defaultRole}\n\n💡 **Usage:** \`.setpersonality <new_role_description>\`\n\n⚠️ This changes the global default role for all users.`;
+                return `Current Global Role:\n\n${this.defaultRole}\n\nUsage: .botrole <new_role_description>`;
             }
 
             const newRole = params.join(' ').trim();
             if (newRole.length < 10) {
-                return '❌ *Role Too Short*\n\nPlease provide a more detailed role description (at least 10 characters).';
+                return 'Role description too short. Please provide a more detailed role description (at least 10 characters).';
             }
 
             this.defaultRole = newRole;
-            
-            return `🤖 *Global Role Updated Successfully!*\n\n**New Default Role:** ${newRole.substring(0, 100)}${newRole.length > 100 ? '...' : ''}\n\nThis affects all users who haven't set a personal role. ✨`;
+            return `Global Bot Role Updated Successfully`;
         } catch (error) {
-            logger.error('Error in setPersonality:', error);
-            return '❌ Failed to update global role. Please try again.';
+            logger.error('Error in setBotRole:', error);
+            return 'Failed to update global role. Please try again.';
         }
     }
 
     async setPersonalRole(msg, params, context) {
         try {
             if (params.length === 0) {
-                return `🎭 *Set Personal Role*\n\n💡 **Usage:** \`.setrole <role_description>\`\n\n**Examples:**\n• \`.setrole You are a coding assistant\`\n• \`.setrole You are a creative writing helper\`\n• \`.setrole You are a math tutor\`\n\nThis sets a custom role just for you!`;
+                return `Set Personal Role\n\nUsage: .setrole <role_description> [user_number]\n\nExamples:\n.setrole You are a coding assistant\n.setrole You are a creative writing helper 1234567890`;
             }
 
-            const newRole = params.join(' ').trim();
+            // Check if last parameter is a phone number
+            const lastParam = params[params.length - 1];
+            let targetUser = null;
+            let roleParams = params;
+
+            if (/^\d+$/.test(lastParam)) {
+                targetUser = lastParam;
+                roleParams = params.slice(0, -1);
+            }
+
+            const newRole = roleParams.join(' ').trim();
             if (newRole.length < 10) {
-                return '❌ *Role Too Short*\n\nPlease provide a more detailed role description (at least 10 characters).';
+                return 'Role description too short. Please provide a more detailed role description (at least 10 characters).';
             }
 
-            const userId = context.participant.split('@')[0];
-            const isGroup = context.sender.endsWith('@g.us');
-            const targetId = isGroup ? `group_${context.sender}` : `user_${userId}`;
-
-            // Save to database
-            await this.savePersonalRole(targetId, newRole);
-            
-            const scopeText = isGroup ? 'this group' : 'you';
-            return `🎭 *Personal Role Set Successfully!*\n\n**Your Custom Role:** ${newRole.substring(0, 150)}${newRole.length > 150 ? '...' : ''}\n\nI'll use this role when chatting with ${scopeText}! ✨`;
+            let targetId;
+            if (targetUser) {
+                // Set role for specific user
+                const userId = targetUser.replace(/[^\d]/g, '');
+                targetId = `user_${userId}`;
+                await this.savePersonalRole(targetId, newRole);
+                return `Personal Role Set for +${userId}`;
+            } else {
+                // Set role for current user/group
+                const userId = context.participant.split('@')[0];
+                const isGroup = context.sender.endsWith('@g.us');
+                targetId = isGroup ? `group_${context.sender}` : `user_${userId}`;
+                await this.savePersonalRole(targetId, newRole);
+                return `Personal Role Set Successfully`;
+            }
         } catch (error) {
             logger.error('Error in setPersonalRole:', error);
-            return '❌ Failed to set personal role. Please try again.';
+            return 'Failed to set personal role. Please try again.';
         }
     }
 
     async resetPersonalRole(msg, params, context) {
         try {
-            const userId = context.participant.split('@')[0];
-            const isGroup = context.sender.endsWith('@g.us');
-            const targetId = isGroup ? `group_${context.sender}` : `user_${userId}`;
+            const targetUser = params[0];
 
-            // Remove from database
-            await this.removePersonalRole(targetId);
-            
-            const scopeText = isGroup ? 'this group' : 'you';
-            return `🔄 *Role Reset Successfully!*\n\nI'll now use the default role when chatting with ${scopeText}.\n\n**Default Role:** ${this.defaultRole.substring(0, 100)}${this.defaultRole.length > 100 ? '...' : ''}`;
-        } catch (error) {
-            logger.error('Error in resetPersonalRole:', error);
-            return '❌ Failed to reset role. Please try again.';
-        }
-    }
-
-    async showPersonalRole(msg, params, context) {
-        try {
-            const userId = context.participant.split('@')[0];
-            const isGroup = context.sender.endsWith('@g.us');
-            const targetId = isGroup ? `group_${context.sender}` : `user_${userId}`;
-
-            const personalRole = await this.getPersonalRole(targetId);
-            const scopeText = isGroup ? 'this group' : 'you';
-            
-            if (personalRole) {
-                return `🎭 *Your Current Role*\n\n**Custom Role for ${scopeText}:**\n${personalRole}\n\n💡 Use \`.resetrole\` to return to default.`;
+            if (targetUser && /^\d+$/.test(targetUser)) {
+                // Reset role for specific user
+                const userId = targetUser.replace(/[^\d]/g, '');
+                const targetId = `user_${userId}`;
+                await this.removePersonalRole(targetId);
+                return `Role Reset for +${userId}`;
             } else {
-                return `🤖 *Current Role for ${scopeText}*\n\n**Using Default Role:**\n${this.defaultRole}\n\n💡 Use \`.setrole <description>\` to set a custom role.`;
+                // Reset role for current user/group
+                const userId = context.participant.split('@')[0];
+                const isGroup = context.sender.endsWith('@g.us');
+                const targetId = isGroup ? `group_${context.sender}` : `user_${userId}`;
+                await this.removePersonalRole(targetId);
+                return `Role Reset Successfully`;
             }
         } catch (error) {
-            logger.error('Error in showPersonalRole:', error);
-            return '❌ Failed to get role information. Please try again.';
+            logger.error('Error in resetPersonalRole:', error);
+            return 'Failed to reset role. Please try again.';
         }
     }
 
     async showChatHelp(msg, params, context) {
         try {
-            return `💬 *ChatBot Help & Features*\n\n` +
-                   `🤖 **What I can do:**\n` +
-                   `• Have natural conversations\n` +
-                   `• Remember our chat history (${this.maxConversationLength} messages)\n` +
-                   `• Answer questions on any topic\n` +
-                   `• Help with tasks and problems\n` +
-                   `• Provide information and explanations\n` +
-                   `• Be your AI companion! 🌟\n\n` +
-                   `⚙️ **Commands:**\n` +
-                   `• \`.chat on/off\` - Toggle for you/group\n` +
-                   `• \`.chatstatus\` - Check current status\n` +
-                   `• \`.clearchat\` - Clear conversation history\n` +
-                   `• \`.chathelp\` - Show this help\n` +
-                   `• \`.chatall on/off\` - Global toggle (owner only)\n` +
-                   `• \`.groupchat on/off\` - Group toggle (admin)\n` +
-                   `• \`.setrole <description>\` - Set custom role for you/group\n` +
-                   `• \`.myrole\` - Show your current role\n` +
-                   `• \`.resetrole\` - Reset to default role\n` +
-                   `• \`.setpersonality\` - Change global role (owner)\n\n` +
-                   `💡 **Tips:**\n` +
-                   `• Just type normally to chat with me\n` +
-                   `• I remember our conversation context\n` +
-                   `• Ask me anything - I'm here to help!\n` +
-                   `• Use commands to control my behavior\n\n` +
-                   `🚀 Ready to chat? Just send me a message!`;
+            return `ChatBot Help & Features\n\n` +
+                   `What I can do:\n` +
+                   `- Have natural conversations\n` +
+                   `- Remember chat history (${this.maxConversationLength} messages)\n` +
+                   `- Process text, images, documents and media\n` +
+                   `- Answer questions on any topic\n` +
+                   `- Help with tasks and problems\n\n` +
+                   `Commands:\n` +
+                   `.chat on/off [number] - Toggle for user/group\n` +
+                   `.chatall on/off - Global toggle (owner)\n` +
+                   `.groupchat on/off - Group toggle (admin)\n` +
+                   `.chatstatus - Check current status\n` +
+                   `.chatdel [number/all] - Delete chat history\n` +
+                   `.setrole <description> [number] - Set custom role\n` +
+                   `.resetrole [number] - Reset to default role\n` +
+                   `.botrole <description> - Set global role (owner)\n` +
+                   `.chathelp - Show this help\n\n` +
+                   `Tips:\n` +
+                   `- Just type normally to chat with me\n` +
+                   `- I remember conversation context\n` +
+                   `- Send images, documents or media for analysis\n` +
+                   `- Use commands to control my behavior`;
         } catch (error) {
             logger.error('Error in showChatHelp:', error);
-            return '❌ Failed to load help information. Please try again.';
+            return 'Failed to load help information. Please try again.';
         }
     }
 
     async handleChatMessage(msg, text, bot) {
-        // Skip if no text or it's a command
-        if (!text || text.startsWith(config.get('bot.prefix'))) return;
+        // Skip if it's a command
+        if (text && text.startsWith(config.get('bot.prefix'))) return;
 
         const context = {
             sender: msg.key.remoteJid,
@@ -462,18 +457,20 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
         if (!this.shouldRespondToChat(context)) return;
 
         try {
-            // Generate AI response
-            const response = await this.generateChatResponse(text, context);
-            
-            if (response) {
-                // Add typing indicator
+            // Show typing indicator
+            if (bot.sock && bot.enableTypingIndicators) {
                 await bot.sock.presenceSubscribe(context.sender);
                 await bot.sock.sendPresenceUpdate('composing', context.sender);
-                
-                // Simulate typing delay
-                await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
-                
-                await bot.sock.sendPresenceUpdate('paused', context.sender);
+            }
+
+            // Generate AI response
+            const response = await this.generateChatResponse(msg, context);
+            
+            if (response) {
+                // Stop typing indicator
+                if (bot.sock && bot.enableTypingIndicators) {
+                    await bot.sock.sendPresenceUpdate('paused', context.sender);
+                }
                 
                 // Send response
                 await bot.sendMessage(context.sender, { text: response });
@@ -481,6 +478,12 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
 
         } catch (error) {
             logger.error('ChatBot response error:', error);
+            // Stop typing indicator on error
+            if (bot.sock && bot.enableTypingIndicators) {
+                try {
+                    await bot.sock.sendPresenceUpdate('paused', context.sender);
+                } catch {}
+            }
         }
     }
 
@@ -505,7 +508,7 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
         }
     }
 
-    async generateChatResponse(text, context) {
+    async generateChatResponse(msg, context) {
         try {
             const conversationId = this.getConversationId(context);
             const history = await this.getConversationHistory(conversationId);
@@ -517,33 +520,75 @@ Keep responses concise but informative. Use emojis appropriately. Be engaging an
             const personalRole = await this.getPersonalRole(targetId);
             const currentRole = personalRole || this.defaultRole;
             
-            // Build context-aware prompt
-            let prompt = currentRole + '\n\n';
+            // Build context-aware prompt with timestamp
+            const timestamp = new Date().toISOString();
+            let prompt = `${currentRole}\n\nCurrent timestamp: ${timestamp}\n\n`;
             
             // Add conversation history
             if (history.length > 0) {
                 prompt += 'Previous conversation:\n';
                 history.forEach(entry => {
-                    prompt += `User: ${entry.user}\nAssistant: ${entry.assistant}\n\n`;
+                    const historyTime = new Date(entry.timestamp).toISOString();
+                    prompt += `[${historyTime}] User: ${entry.user}\n`;
+                    prompt += `[${historyTime}] Assistant: ${entry.assistant}\n\n`;
                 });
             }
             
+            // Process message content (text and media)
+            const messageContent = await this.extractMessageContent(msg);
+            
             // Add current message
-            prompt += `Current message: ${text}\n\n`;
-            prompt += 'Respond naturally and helpfully. Keep it conversational and engaging.';
+            prompt += `Current message [${timestamp}]: ${messageContent}`;
 
             const result = await this.model.generateContent(prompt);
             const response = await result.response;
             const aiResponse = response.text();
 
             // Update conversation history in database
-            await this.addToConversation(conversationId, text, aiResponse);
+            await this.addToConversation(conversationId, messageContent, aiResponse);
 
             return aiResponse;
 
         } catch (error) {
             logger.error('Error generating chat response:', error);
-            return '❌ Sorry, I encountered an error generating a response. Please try again.';
+            return 'Sorry, I encountered an error generating a response. Please try again.';
+        }
+    }
+
+    async extractMessageContent(msg) {
+        try {
+            // Handle text messages
+            const text = msg.message?.conversation || 
+                        msg.message?.extendedTextMessage?.text || 
+                        msg.message?.imageMessage?.caption || 
+                        msg.message?.videoMessage?.caption || 
+                        msg.message?.documentMessage?.caption || '';
+
+            let content = text;
+
+            // Handle different media types
+            if (msg.message?.imageMessage) {
+                content += text ? '\n[Image attached]' : '[Image attached]';
+                // TODO: Add image analysis with Gemini Vision if needed
+            } else if (msg.message?.videoMessage) {
+                content += text ? '\n[Video attached]' : '[Video attached]';
+            } else if (msg.message?.audioMessage) {
+                content += text ? '\n[Audio message attached]' : '[Audio message attached]';
+            } else if (msg.message?.documentMessage) {
+                const docName = msg.message.documentMessage.fileName || 'Unknown document';
+                content += text ? `\n[Document attached: ${docName}]` : `[Document attached: ${docName}]`;
+            } else if (msg.message?.stickerMessage) {
+                content = '[Sticker sent]';
+            } else if (msg.message?.locationMessage) {
+                content = '[Location shared]';
+            } else if (msg.message?.contactMessage) {
+                content = '[Contact shared]';
+            }
+
+            return content || '[Unsupported message type]';
+        } catch (error) {
+            logger.error('Error extracting message content:', error);
+            return '[Error processing message]';
         }
     }
 
